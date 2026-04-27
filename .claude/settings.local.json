@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 *)",
+      "Bash(PYTHONIOENCODING=utf-8 python3 db/apply_comments.py)",
+      "Bash(duckdb db/scde.duckdb \"SELECT COUNT\\(*\\) AS total_rows FROM code_accounting_codes;\")",
+      "Bash(mkdir -p \"C:/Users/Dan's Test Device/Finance Dazzle/scde-agent-tree/docs/style\")",
+      "Bash(mv \"C:/Users/Dan's Test Device/Finance Dazzle/scde-agent-tree/data/uploads/look-deeper-design-system.html\" \"C:/Users/Dan's Test Device/Finance Dazzle/scde-agent-tree/docs/style/look-deeper-design-system.html\")",
+      "Bash(585,665,294)",
+      "Bash(1,545,650)",
+      "Bash(864,450)",
+      "Bash(31,415)",
+      "Bash(where duckdb *)"
+    ]
+  }
+}

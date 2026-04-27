@@ -1,0 +1,117 @@
+# Canonical DB Schema
+
+Single-file DuckDB at `db/scde.duckdb`. Tables are namespaced by source layer.
+Each layer's specialist agent owns its tables; `db-warehouse` owns the file.
+
+## Two-file documentation pattern
+
+This file is the **human-readable** schema overview — table list, layout
+conventions, where to make changes. The **machine-readable** version is
+`db/schema.json`, which is the source of truth for column descriptions
+and is applied to the live DB via `python3 db/apply_comments.py`.
+
+Once applied, descriptions are queryable as standard DuckDB column
+comments:
+
+```sql
+SELECT column_name, comment FROM duckdb_columns()
+WHERE table_name = 'sceis_detail_transaction';
+```
+
+This means **any agent — report, schema-explorer, or otherwise — can
+fetch tooltip-friendly descriptions for any table or column with a
+single SQL query**. No custom parsers, no markdown scraping.
+
+When schema changes, update both files: schema.json holds the
+descriptions; init.sql holds the DDL. Re-run `apply_comments.py`
+after either changes.
+
+## Conventions
+
+- All amount columns are `DECIMAL(18, 2)` unless otherwise noted
+- All date columns are `DATE`; timestamps are `TIMESTAMP`
+- All FY/SY columns are `SMALLINT` (e.g., 2025 not "2024-25")
+- Primary keys are explicit even on staging tables
+- Stored procedures live in `db/procs/`
+
+## Tables (current)
+
+### Dimensions
+- `dim_district` (District_ID PK, District_Name, normalized_name, source_files[])
+- `dim_fiscal_year` (FY PK, start_date, end_date, sy_label)
+
+### sceis_*  — owned by `sceis-data`
+- `sceis_agency_master` (Cost_Center PK, Name, Functional_Area, Mini_Code FK, ...)
+- `sceis_detail_transaction` (Doc_Number, Doc_Item PK, ...)
+- `sceis_fi_payments` (Doc_Number, Item PK, Vendor, Clearing_Doc_Number FK, ...)
+
+### lea_*  — owned by `lea-data`
+- `lea_revenues` (District_ID, Revenue_Code, FY PK, Amount)
+- `lea_expenditures` (District_ID, Function_Code, FY PK, Amount)
+- `lea_adm_counts` (District_ID, School_Code, SY PK, Report_Cycle, Total_Membership, ...)
+- `lea_headcounts` (District_ID, SY PK, Report_Cycle, Total_Active_Enrollment, ...)
+- `lea_wpu_allocations` (District_ID, FY PK, Category, Weighted_Pupils, ...)
+
+### code_*  — owned by `code-catalog`
+- `code_accounting_codes` (Code, Type PK, Full_Name, Display_Name, ...)
+
+  **Load-time caveat — excluded sub-items.** The table holds one row per
+  `(Code, Type)`. Four handbook sub-items were excluded at load time because
+  the source xlsx does not assign them distinct codes; fabricating suffix codes
+  was rejected in favor of documenting the gap (option c). Downstream joins
+  must use `(Code, Type)` and must not assume sub-item granularity.
+
+  Excluded sub-items:
+  - `(4310, Revenue)` — "Title I, Part C — Education of Migratory Children".
+    Note: `4310C` exists in `code_district_funding_streams` and resolves to
+    the parent via the regex join. The parent's `Full_Description` explicitly
+    names all sub-programs, so tooltip lookups still surface the relevant
+    definition.
+  - `(4310, Revenue)` — "Title I, Part D — Neglected and Delinquent Program"
+  - `(4310, Revenue)` — "Title I, Section 1003(A) — School Improvement"
+  - `(420, Function)` — "Transfer to General Fund (Exclude Indirect Cost)"
+
+- `code_district_funding_streams` (REV_Code PK, Stream_Type, Rollup_Level, ...)
+- `code_historical_revenue_codes` (Code, Type PK, Full_Name, Display_Name,
+  Short_Description, Full_Description, Last_Active_FY, Program_Authority)
+
+  Retired or time-limited revenue codes no longer in the current handbook but
+  present in historical `lea_revenues` rows. Current seed rows: 3143 (GEER
+  CERDEP Summer, CARES Act Sec. 18002) and 3995 (CRF Per Pupil Funding, CARES
+  Act Sec. 5001), both with `Last_Active_FY = 2025`.
+
+  **Mart join pattern.** When building `mart_district_revenue_rollup` or any
+  mart that joins `lea_revenues` to a description table, use a LEFT JOIN to
+  both `code_accounting_codes` (current) and `code_historical_revenue_codes`
+  (retired), then COALESCE the description columns in that order:
+
+  ```sql
+  LEFT JOIN code_accounting_codes      c  ON r.Revenue_Code = c.Code  AND c.Type = 'Revenue'
+  LEFT JOIN code_historical_revenue_codes h ON r.Revenue_Code = h.Code AND h.Type = 'Revenue'
+  -- then in SELECT:
+  COALESCE(c.Short_Description, h.Short_Description) AS Short_Description
+  ```
+
+  This ensures both current and historical codes surface descriptions without
+  modifying the authoritative handbook table.
+
+- `code_handbook_definitions` (Term PK, Definition, Category)
+
+### lookup_*  — owned by `code-catalog`
+- `lookup_gl_account` (GL_Account PK, SAP_Category, Handbook_Code FK, Handbook_Type)
+
+### mart_*  — owned by report agents (denormalized for HTML dashboards)
+- `mart_district_revenue_rollup` (District_ID, FY, Revenue_Code, Stream_Type,
+   Category, Display_Title, Rollup_Level, Amount) — owned by
+   `report-district-revenue`. Joins lea_revenues to
+   code_district_funding_streams + code_accounting_codes; rebuilt
+   when either source changes.
+
+## Schema changes
+
+Any agent proposing a schema change must:
+1. Edit this file with the proposed change
+2. Invoke `data-quality` to validate
+3. Invoke `db-warehouse` to apply with snapshot
+
+Never modify schema directly via `bash duckdb` calls — go through the warehouse agent.

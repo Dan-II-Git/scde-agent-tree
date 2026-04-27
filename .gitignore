@@ -1,0 +1,31 @@
+# Generated database — anyone can rebuild from sources
+db/scde.duckdb
+db/scde.duckdb.wal
+db/snapshots/
+
+# Source data — users supply their own; do not commit
+data/uploads/
+data/staging/
+
+# Generated reports
+outputs/reports/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Claude Code session artifacts
+.claude/sessions/
+.claude/cache/

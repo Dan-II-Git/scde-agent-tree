@@ -1,0 +1,314 @@
+{
+  "_about": "Structured schema metadata for SCDE canonical DB. Source of truth for column descriptions used by tooltips in any report or schema-explorer agent. Generated from: ERD PDF caveats, SC Financial Accounting Handbook FY2526, SCEIS field reference, original upload file headers. Update this file when schema changes; db/init.sql comments are derived from it.",
+  "_conventions": {
+    "description_length": "≤200 chars for tooltip-friendly display; full handbook definitions live in code_accounting_codes.Full_Description",
+    "source": "Where the description came from — 'handbook' / 'erd_caveat' / 'inferred_from_data' / 'sap_reference'",
+    "stability": "'stable' / 'derived' (recomputed when sources change) / 'experimental'"
+  },
+  "tables": {
+    "dim_district": {
+      "purpose": "Canonical dimension for SC public school districts. Resolves the naming convention drift across ADM (short names), WPU/Headcount (long names), and District_ID-bearing files.",
+      "stability": "stable",
+      "columns": {
+        "District_ID": "Zero-padded 4-digit SC district ID, e.g. '0160'. Preferred join key when available.",
+        "District_Name": "Canonical display name for reports. Defaults to long form ('Abbeville 60').",
+        "normalized_name": "Lowercased, whitespace-stripped form for fuzzy joins where ID is unavailable.",
+        "short_name": "Short form used by ADM files ('Abbeville', 'Anderson 1').",
+        "long_name": "Long form used by WPU and Headcount files ('Abbeville 60', 'Anderson 01').",
+        "source_files": "Array of file basenames where this district appears. Useful for coverage audits."
+      }
+    },
+    "dim_fiscal_year": {
+      "purpose": "Fiscal year reference. SCDE FY runs July 1 to June 30. SY label matches the spanning school year (FY2025 = SY 2024-25).",
+      "stability": "stable",
+      "columns": {
+        "FY": "Fiscal year as four-digit ending year (FY ending June 30, 2025 = 2025).",
+        "start_date": "July 1 of FY-1.",
+        "end_date": "June 30 of FY.",
+        "sy_label": "School year label, e.g. '2024-25'."
+      }
+    },
+
+    "code_accounting_codes": {
+      "purpose": "The authoritative SC Financial Accounting Handbook code catalog. Source for tooltip descriptions on every code rendered in any report.",
+      "stability": "stable",
+      "source": "SC_Accounting_Codes_FY2526.xlsx · 487 rows",
+      "columns": {
+        "Code": "3-4 digit handbook code. Note: Function and Object codes overlap numerically (100-700); always filter on Type to disambiguate.",
+        "Type": "One of 'Revenue' (252 codes, 1000-5999), 'Function' (131 codes, 100-600 for expenditure purpose), 'Object' (104 codes, 100-700 for expenditure type).",
+        "Full_Name": "Official handbook title, often ALL CAPS for top-level categories.",
+        "Display_Name": "Truncated label for narrow report columns (~30 chars).",
+        "Short_Description": "1-2 sentence description suitable for hover tooltips. Populated for all 487 codes.",
+        "Full_Description": "Complete handbook definition, can run several paragraphs. ~90% populated; falls back to Short_Description when missing."
+      }
+    },
+    "code_district_funding_streams": {
+      "purpose": "District-facing inventory of revenue streams with rollup hierarchy. Drives the bucket categorization in the comparison reports (SAC Required, Local District Services, State Other, Federal, etc.).",
+      "stability": "stable",
+      "source": "District_Funding_Stream_Inventory.xlsx · 201 streams across Local/State/Federal sheets",
+      "columns": {
+        "REV_Code": "Revenue code; mostly matches code_accounting_codes.Code where Type='Revenue'. Suffixed codes (3103H, 3103E) represent subdivisions of a parent SCEIS code that roll up.",
+        "Stream_Type": "'Local' / 'State' / 'Federal' — derived from source sheet name.",
+        "Rollup_Level": "1 (top) through 4 (detail) hierarchy depth.",
+        "Category": "Bucket name used in comparison reports (Taxes & Fees, District Services, Investments, State Aid to Classrooms, Property Tax Reimbursement, etc.).",
+        "Display_Title": "Short title for dashboards.",
+        "Program_Office": "Owning SCDE office (state sheet only).",
+        "Source_System": "Originating system: LARS, SCEIS, PowerSchool ADM, etc."
+      }
+    },
+    "code_historical_revenue_codes": {
+      "purpose": "Retired or time-limited revenue codes no longer in the current SC Financial Accounting Handbook but still present in historical lea_revenues data. Prevents unmapped-code warnings for valid CARES Act and other emergency-fund codes. Read-only reference — do not assign new amounts against these codes.",
+      "stability": "stable",
+      "source": "Manually curated by code-catalog agent from CARES Act statutory references and prior handbook editions",
+      "columns": {
+        "Code": "3-4 digit revenue code. Same numeric space as code_accounting_codes.Code where Type='Revenue'; never overlaps with current codes.",
+        "Type": "Always 'Revenue' in current data. Included for PK symmetry with code_accounting_codes to enable UNION-safe queries.",
+        "Full_Name": "Official or reconstructed full title of the funding program.",
+        "Display_Name": "Short label for narrow report columns (~30 chars).",
+        "Short_Description": "1-2 sentence description suitable for hover tooltips. Describes program authority and time-limited nature.",
+        "Full_Description": "Complete definition including statutory authority, distribution method, and successor codes where applicable.",
+        "Last_Active_FY": "Last fiscal year in which this code was expected to carry non-zero amounts. Entries after this year are likely audit reconciliation entries.",
+        "Program_Authority": "Statutory or regulatory citation (e.g., 'CARES Act Sec. 18002 (P.L. 116-136)')."
+      }
+    },
+    "code_handbook_definitions": {
+      "purpose": "Terminology glossary parsed from the handbook .docx. Definitions for terms that aren't codes themselves (e.g., 'Fund', 'Encumbrance', 'Indirect Cost').",
+      "stability": "derived",
+      "source": "FY_2025-26_Financial_Accounting_Handbook_Definitions.docx",
+      "columns": {
+        "Term": "Defined term as it appears in the handbook glossary.",
+        "Definition": "Full definition narrative.",
+        "Category": "Revenue / Function / Object / Fund / General — the section the term lives in."
+      }
+    },
+    "lookup_gl_account": {
+      "purpose": "Derived bridge from 10-digit SAP G/L accounts (used in SCEIS) to 3-4 digit handbook codes. Pattern-inferred — replace with canonical SCEIS crosswalk if one becomes available.",
+      "stability": "derived",
+      "source": "Inferred from G/L digit patterns in DETAIL_TRANSACTION + FI_PAYMENTS",
+      "columns": {
+        "GL_Account": "10-digit SAP G/L account number, e.g. '4110020000'.",
+        "SAP_Category": "Inferred from leading digit: 1xxx asset, 2xxx liability, 3xxx fund balance, 4xxx revenue, 5xxx expenditure, 6-7xxx clearing.",
+        "Handbook_Code": "Matched 3-4 digit handbook code where possible. Blank for balance-sheet accounts (correctly excluded from handbook).",
+        "Handbook_Type": "Revenue / Object / Balance Sheet — the category the matched code falls under.",
+        "Handbook_Name": "Display name from code_accounting_codes for the matched code."
+      }
+    },
+    "lookup_sceis_program_classification": {
+      "purpose": "Curated regex rules that classify sceis_fi_payments.Reference into a Funding_Stream (State / Federal / Other) and Program_Tag (EIA, ESSER, Title I-IV, IDEA, SAC, etc.). Lowest Rule_Order wins on multi-match. Joined via the vw_sceis_fi_payments_classified view.",
+      "stability": "derived",
+      "source": "Curated 2026-04-27 from token analysis of the Reference column across FY23-26 FI Payments. Validates 97.6% of district-attributed dollars (79.5% State, 18.2% Federal) with 22 rules.",
+      "load_caveats": [
+        "Reference is truncated to ~10 characters in the source xlsx, which limits classification of some programs (e.g., 'STRONGE' = Stronger Connections grant). The 'Other / unmatched' bucket is mostly truncation artifacts.",
+        "EIA payments are monthly — the same program shows ~12x per FY. Don't double-count if aggregating to annual.",
+        "Pattern is evaluated against UPPER(regexp_replace(Reference, '^\\d{4}[\\s\\-_]*', '')) — the District_ID prefix is stripped first."
+      ],
+      "columns": {
+        "Rule_Order": "Priority — lowest wins on multi-match. Convention: 10-190 = federal acronyms, 200-290 = state acronyms, 900+ = period-prefix catchalls.",
+        "Pattern": "DuckDB regex pattern (RE2-compatible).",
+        "Funding_Stream": "'State' / 'Federal' / 'Other'.",
+        "Program_Tag": "Short program name, e.g. 'EIA', 'ESSER', 'Title I-IV'.",
+        "Description": "Human-readable program description.",
+        "Source": "Provenance — when/how the rule was added."
+      }
+    },
+    "vw_sceis_fi_payments_classified": {
+      "purpose": "View — sceis_fi_payments left-joined to lookup_sceis_program_classification, exposing Funding_Stream and Program_Tag columns. Use this view (not the raw table) for any State/Federal split or per-program analysis.",
+      "stability": "derived",
+      "source": "View defined in init.sql; recomputes on every query.",
+      "columns": {
+        "Funding_Stream": "'State' / 'Federal' / 'Other' from the classification rules. NULL Reference rows fall through to 'Other / unmatched'.",
+        "Program_Tag": "Short program name; 'unmatched' for rows that no rule matched.",
+        "Classification_Rule_Order": "Rule_Order of the rule that matched. NULL = no rule matched."
+      }
+    },
+
+    "sceis_agency_master": {
+      "purpose": "Canonical dimension for H630 (SCDE) organizational structure. Joins to detail transactions on four equivalent keys: Cost_Center, Functional_Area, AGY_Funded_Program, State_Funded_Program.",
+      "stability": "stable",
+      "source": "Agency_Master_Data.xlsx · 4,645 rows · 225 distinct cost centers",
+      "columns": {
+        "Cost_Center": "SAP cost center, e.g. 'H630000010'. Primary join key.",
+        "Name": "Cost center display name.",
+        "Functional_Area": "H630_XXXX format (appropriation activity).",
+        "Functional_Area_Desc": "Human-readable functional area description.",
+        "Mini_Code": "4-digit short reference code that links to handbook.",
+        "State_Funded_Program": "Dotted state appropriation code, e.g. '9500.050000.000'.",
+        "AGY_Funded_Program": "H630XXXXXX_XXXX format agency program code.",
+        "AGY_Funded_Program_Name": "Program display name.",
+        "Valid_From": "Effective start date.",
+        "Valid_To": "Effective end date; 9999-12-31 indicates open-ended."
+      }
+    },
+    "sceis_detail_transaction": {
+      "purpose": "Core fact table for H630 SCEIS G/L postings. CRITICAL: amounts are signed by the H/S indicator; never abs() before aggregation.",
+      "stability": "stable",
+      "source": "Detail_Transaction_Report_SCDE_YTD_*.xlsx · monthly sheets",
+      "columns": {
+        "Doc_Number": "SAP document number.",
+        "Doc_Item": "Line item within the document.",
+        "Business_Area": "Always 'H630' in this extract (SCDE).",
+        "Fund": "SCEIS fund code.",
+        "Funds_Cost_Center": "Joins to sceis_agency_master.Cost_Center.",
+        "Functional_Area": "Joins to sceis_agency_master.Functional_Area.",
+        "Agency_Appropriation": "Joins to sceis_agency_master.AGY_Funded_Program.",
+        "State_Appropriation": "Joins to sceis_agency_master.State_Funded_Program.",
+        "GL_Account": "10-digit SAP G/L; joins to lookup_gl_account for handbook-level grouping.",
+        "Posting_Date": "Date the transaction was posted to the ledger.",
+        "Posting_Period": "Fiscal period 1-12.",
+        "Fiscal_Year": "Fiscal year (e.g., 2026).",
+        "Document_Type": "BI, Z7, PY, AA, SK, etc. — categorizes the kind of transaction.",
+        "Ref_Doc_Number": "Originating document; may equal Doc_Number for primary postings.",
+        "Posting_Key": "40 = debit, 50 = credit.",
+        "Debit_Credit_Ind": "H (Haben/credit) or S (Soll/debit). Determines sign of Debit_Credit_Amount.",
+        "Debit_Credit_Amount": "SIGNED amount: H rows are negative, S rows positive. Aggregations using abs() are typically wrong."
+      }
+    },
+    "sceis_fi_payments": {
+      "purpose": "Vendor invoice and payment clearing data from SAP FI module — the state's audited system of record for SCDE outflows. Authoritative over lea_revenues / lea_expenditures wherever the same flow appears in both. District_ID is derived from the Reference column (validated against dim_district), letting state-to-district transfers be aggregated without a separate vendor crosswalk.",
+      "stability": "stable",
+      "source": "FI_Payments_by_Vendor_FY23..FY26_YTD.xlsx · 123,218 rows across 4 fiscal years · loaded by data/staging/load_sceis_fi_payments.py",
+      "load_caveats": [
+        "Two subtotal rows per file ('Result' and 'Overall Result') have null Doc_Number and are skipped at load.",
+        "Clearing_Doc_Number is not present in the current export and is loaded as NULL; ERD documents the intended join to sceis_detail_transaction.Doc_Number.",
+        "District_ID coverage by amount: ~92% per FY. The unmatched ~8% is genuine non-district vendor spending (statewide contracts, agency operations).",
+        "3 dim_district IDs do not appear in FI Payments: 5208 (DJJ), 5209 (DOC), 5364 (Governor's School for the Arts and Humanities). They receive direct agency appropriations, not state aid through this stream."
+      ],
+      "columns": {
+        "Doc_Number": "FI document number (the invoice itself). Does NOT match sceis_detail_transaction.Doc_Number.",
+        "Item": "Line item within the FI document.",
+        "Business_Area": "Always 'H630 EDUCATION DEPARTMENT'.",
+        "Vendor": "SAP vendor number.",
+        "Vendor_Name": "Vendor display name.",
+        "Document_Date": "Invoice date.",
+        "Posting_Date": "Date the invoice was posted to the ledger.",
+        "Document_Type": "Typically 'KI' for vendor invoice.",
+        "GL_Account": "10-digit SAP G/L; joins to lookup_gl_account.",
+        "Clearing_Doc_Number": "JOINS to sceis_detail_transaction.Doc_Number when present. NULL in the current export; carried in schema for future loads.",
+        "Fiscal_Period": "Format NNN/YYYY, e.g. '001/2026'.",
+        "Fiscal_Year": "Derived from Fiscal_Period suffix. Use this for grouping rather than parsing the period string.",
+        "Reference": "Free-text payment reference. For district payments, begins with the 4-digit District_ID followed by program/period info (e.g., '0160 EIA 7 JUL'). For non-district vendors, contains invoice numbers, period ranges, or descriptors ('VARIOUS', '#').",
+        "District_ID": "Derived 4-digit District_ID, validated against dim_district. NULL when Reference does not start with /^\\d{4}/ or when the prefix is not a known District_ID — naive prefix-without-validation would falsely attribute vendor invoice fragments (e.g., AMERIGAS '8059', UNIFIRST '2110') to nonexistent districts.",
+        "Source_File": "Originating xlsx filename, for provenance and reload diagnostics.",
+        "Amount": "Payment amount."
+      }
+    },
+
+    "lea_revenues": {
+      "purpose": "District-level annual revenue, normalized to tidy form. Source files are wide-pivot with districts as columns; this table is the unpivoted result. District self-reported, NOT the system of record — see Reported_Flag for submission status.",
+      "stability": "stable",
+      "source": "Revenue_FY2022-23 through FY2024-25.xlsx · 3 fiscal years · district self-reported",
+      "submission_caveats": [
+        "The source xlsx pre-fills each district's column with literal zeros across all leaf revenue codes; non-submitting districts therefore appear as $0 across every row, indistinguishable from a district that genuinely had $0 in a code without further analysis.",
+        "Reported_Flag distinguishes the two cases: TRUE = at least one nonzero leaf row in that (District_ID, FY); FALSE = entire column is zero (not submitted, OR structurally correct e.g. Barnwell 45/48 post-merger).",
+        "20 (District_ID, FY) combos are FALSE: chronic gaps (Jasper 01 across all 3 FYs), structurally correct merger zeros (Barnwell 0601 pre-FY25, Barnwell 45/48 post-FY24), Governor's Schools 5364/5395 (not regular districts and don't submit), and an FY25 cohort still mid-submission (Beaufort 01, Greenwood 50, Lancaster 01, Laurens 55, Saluda 01, Clarendon 06).",
+        "Aggregations and statewide weighted averages should filter on Reported_Flag = TRUE; otherwise template-zero districts deflate per-pupil rates and inflate apparent district counts."
+      ],
+      "columns": {
+        "District_ID": "Joins to dim_district.District_ID.",
+        "Revenue_Code": "Joins to code_accounting_codes (Type='Revenue'). 92% match rate against handbook.",
+        "FY": "Fiscal year (4-digit ending year).",
+        "Amount": "Annual revenue dollars for this district + code combination. Self-reported by the district; SCEIS (sceis_fi_payments) is authoritative wherever the same flow appears in both.",
+        "Reported_Flag": "TRUE if the district reported any nonzero leaf row in this FY; FALSE = template-zero across the entire column. Derived per (District_ID, FY) and denormalized onto every row of that group. Filter on Reported_Flag = TRUE for any aggregation that should reflect actual submitted revenue."
+      }
+    },
+    "lea_expenditures": {
+      "purpose": "District-level annual expenditures by FUNCTION code (purpose: Instruction, Support Services), not by Object code (type: Salaries, Supplies). For Object-level district spending, source data is not available in the current upload set. District self-reported, NOT the system of record.",
+      "stability": "stable",
+      "source": "Expenditure_FY2022-23 through FY2024-25.xlsx · 3 fiscal years · district self-reported · NOT YET LOADED (table is empty pending a load_lea_expenditures.py loader)",
+      "submission_caveats": [
+        "Source xlsx is wide-pivot with the same template-zero pattern as lea_revenues — non-submitting districts pre-fill with literal zeros across all leaf rows. Reported_Flag must be derived per (District_ID, FY) at load time, identical to the lea_revenues convention.",
+        "Statewide aggregations and per-pupil expenditure rates MUST filter on Reported_Flag = TRUE."
+      ],
+      "columns": {
+        "District_ID": "Joins to dim_district.District_ID.",
+        "Function_Code": "Joins to code_accounting_codes (Type='Function'). 96% match rate.",
+        "FY": "Fiscal year.",
+        "Amount": "Annual expenditure dollars for this district + function code. Self-reported by the district; SCEIS (sceis_fi_payments / sceis_detail_transaction) is authoritative wherever the same flow appears in both.",
+        "Reported_Flag": "TRUE if the district reported any nonzero leaf row in this FY; FALSE = template-zero across the entire column. Derived per (District_ID, FY) and denormalized onto every row of that group. Same semantics as lea_revenues.Reported_Flag. Filter on TRUE for aggregations."
+      }
+    },
+    "lea_adm_counts": {
+      "purpose": "Average Daily Membership at the 135-day report cycle (mid-year, SCEIS-sourced). Drives WPU funding calculations. Distinct from lea_headcounts.",
+      "stability": "stable",
+      "source": "ADM13521 through ADM13525.xlsx · 5 school years",
+      "columns": {
+        "District_ID": "Joins to dim_district.District_ID.",
+        "School_Code": "SCDE school code; null for district-level rollup rows.",
+        "SY": "School year (4-digit ending year, e.g. 2025 = SY 2024-25).",
+        "Report_Cycle": "Always 135 in current files (SCDE also uses 45-day and 180-day cycles).",
+        "PK_count": "Pre-kindergarten ADM.",
+        "K_count": "Kindergarten ADM.",
+        "Grade_01": "Grade 1 ADM.",
+        "Grade_02": "Grade 2 ADM.",
+        "Grade_03": "Grade 3 ADM.",
+        "Grade_04": "Grade 4 ADM.",
+        "Grade_05": "Grade 5 ADM.",
+        "Grade_06": "Grade 6 ADM.",
+        "Grade_07": "Grade 7 ADM.",
+        "Grade_08": "Grade 8 ADM.",
+        "Grade_09": "Grade 9 ADM.",
+        "Grade_10": "Grade 10 ADM.",
+        "Grade_11": "Grade 11 ADM.",
+        "Grade_12": "Grade 12 ADM.",
+        "Total_Membership": "Sum across all grades."
+      }
+    },
+    "lea_headcounts": {
+      "purpose": "Active enrollment headcount at the 45-day report cycle, sourced from PowerSchool QDC1. Distinct from ADM: counts unique students rather than averaging daily presence. Used as per-pupil denominator in comparison reports.",
+      "stability": "stable",
+      "source": "District_Headcount_by_Grade_22 through __25.xlsx · 4 school years",
+      "columns": {
+        "District_ID": "Joins to dim_district.District_ID. Zero-padded 4-digit, e.g. '0160'.",
+        "SY": "School year (4-digit ending year).",
+        "Report_Cycle": "Always 45 (45th instructional day).",
+        "Source_System": "PowerSchool QDC1 extraction.",
+        "Total_Active_Enrollment": "Sum across all grades. 'Active' = EntryCode 'E' AND Included in State Reporting = 'Y'.",
+        "PK_count": "Pre-kindergarten headcount.",
+        "K5_count": "Kindergarten (5-year-old) headcount. Note: ADM uses 'K', headcount uses 'K5'.",
+        "Grade_01": "Grade 1 headcount.",
+        "Grade_02": "Grade 2 headcount.",
+        "Grade_03": "Grade 3 headcount.",
+        "Grade_04": "Grade 4 headcount.",
+        "Grade_05": "Grade 5 headcount.",
+        "Grade_06": "Grade 6 headcount.",
+        "Grade_07": "Grade 7 headcount.",
+        "Grade_08": "Grade 8 headcount.",
+        "Grade_09": "Grade 9 headcount.",
+        "Grade_10": "Grade 10 headcount.",
+        "Grade_11": "Grade 11 headcount.",
+        "Grade_12": "Grade 12 headcount."
+      }
+    },
+    "lea_wpu_allocations": {
+      "purpose": "Weighted Pupil Units and EFA funding calculations. Each pupil category carries a different weight; ADM × weight = WPU. Schema drifted across years — earlier years include allocation columns that later years dropped.",
+      "stability": "stable",
+      "source": "WPU13521 through WPU_13525.xlsx · 5 fiscal years",
+      "columns": {
+        "District_ID": "Joins to dim_district.District_ID.",
+        "FY": "Fiscal year.",
+        "Category": "Pupil category: Kindergarten, Primary, Elementary, Special Ed tiers, etc.",
+        "ADM_135_Day": "135-day Average Daily Membership for this category.",
+        "Weighted_Pupils": "ADM × category weight = the WPU figure.",
+        "State_Allocation": "State EFA funding for this category. Null for FY23+ (column dropped from source files).",
+        "Local_Required_Support": "District local match. Null for FY23+.",
+        "Audit_Standard": "Audit standard amount. Null for FY23+."
+      }
+    },
+
+    "mart_district_revenue_rollup": {
+      "purpose": "Denormalized rollup joining lea_revenues to code_district_funding_streams + code_accounting_codes. Powers all three modes of the report-district-revenue agent. Rebuilt by that agent when source data changes.",
+      "stability": "derived",
+      "owner_agent": "report-district-revenue",
+      "columns": {
+        "District_ID": "Joins to dim_district.District_ID.",
+        "FY": "Fiscal year.",
+        "Revenue_Code": "Joins to code_accounting_codes (Type='Revenue').",
+        "Stream_Type": "Local / State / Federal — from code_district_funding_streams.",
+        "Category": "Bucket name used in comparison reports.",
+        "Display_Title": "Short label for dashboards.",
+        "Rollup_Level": "1-4 hierarchy depth for detail mode rendering.",
+        "Amount": "Annual revenue dollars (signed; revenues are positive)."
+      }
+    }
+  }
+}
