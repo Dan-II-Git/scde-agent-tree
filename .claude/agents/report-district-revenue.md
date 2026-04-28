@@ -206,9 +206,18 @@ Single self-contained .html file. Conventions:
   - **Submission status callouts.** Districts with
     `Reported_Flag = FALSE` are listed with their SCEIS-only totals.
     Jasper 01 belongs here for FY23/FY24/FY25.
-  - **Excluded districts.** 5208 DJJ, 5209 DOC, 5364/5395 Governor's
-    Schools — direct agency appropriations, not part of the
-    district-revenue rollup.
+  - **Excluded districts.** Source of truth is
+    `lookup_district_exclusions` (filter `Exclude_Scope = 'all_reports'`
+    and respect `Effective_FY_From` / `Effective_FY_To` bounds — NULL
+    means unbounded). Do **not** hardcode the list of District_IDs in
+    queries or footers; query the lookup table at run time so additions
+    flow through automatically. Currently 6 entities are flagged
+    permanently: 5205 (SC Governor's School for Agriculture at John De
+    La Howe), 5207 (SC School for the Deaf and the Blind), 5208 (DJJ),
+    5209 (DOC), 5364 (Governor's School for the Arts and Humanities),
+    5395 (Governor's School for Science and Mathematics). The methodology
+    footer should disclose the count and dollar/headcount impact, not
+    re-render a hardcoded list.
   - **FY/SY**, generation timestamp, the data quality verdict from
     the most recent `data-quality` invocation.
 

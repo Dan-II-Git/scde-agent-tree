@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SCMap — SCDE District Map Component</title>
+
+<!--
+================================================================================
+SCMap — Reusable SC School District Map Component
+================================================================================
+
+Self-contained SCDE-branded map of South Carolina school districts. Designed to
+be inlined into any single-file HTML report. Replaces the hand-rolled palette
+in data/uploads/sc-districts-map.html with SCDE design tokens.
+
+INTEGRATION PATTERN
+-------------------
+Report agents embed this component by:
+
+1. Querying dim_district_geometry for the districts to render:
+
+       SELECT District_ID, GEOID, District_Name_Normalized,
+              Geometry_GeoJSON, Has_Geometry, Centroid_Lon, Centroid_Lat
+       FROM   dim_district_geometry
+       WHERE  Exclude_Scope = 'all_reports' filter applied if needed
+
+2. Building a GeoJSON FeatureCollection from Has_Geometry=TRUE rows:
+
+       {
+         "type": "FeatureCollection",
+         "features": [
+           {
+             "type": "Feature",
+             "properties": { "GEOID": "4503000", "NAME": "Greenville 01",
+                             "DISTRICT_ID": "2301" },
+             "geometry": <parsed Geometry_GeoJSON>
+           },
+           ...
+         ]
+       }
+
+   Inline that JSON into the <script id="sc-districts-geojson"> tag below.
+
+3. (Optional) Building a list of charter / no-geometry districts from
+   Has_Geometry=FALSE rows and inlining as window._SC_CHARTER_DISTRICTS.
+
+4. (Optional) Building a value map for choropleth coloring and calling
+   SCMap.setData({ districtId: number, ... }) after DOMContentLoaded.
+
+PUBLIC API
+----------
+   window.SCMap.onSelect(fn)         set click callback: fn({districtId, geoid, name})
+   window.SCMap.onHover(fn)          set hover callback
+   window.SCMap.select(districtId)   select programmatically
+   window.SCMap.clear()              clear selection
+   window.SCMap.getDistricts()       array of all districts (geometric + charter)
+   window.SCMap.setData(map, opts)   bind {districtId: value} for choropleth coloring
+                                     opts: { format: '$0,0', scale: 'sequential' | 'diverging',
+                                             midpoint?: number, label?: string }
+
+CustomEvents fired on document:
+   'sc-district-select'   detail = { districtId, geoid, name }
+   'sc-district-hover'    detail = { districtId, geoid, name }
+
+================================================================================
+-->
+
+<style>
+  :root {
+    /* SCDE brand palette (from docs/style/scde-design/tokens.json) */
+    --brand-primary:    #2F3D4C;   /* Pantone 432 C */
+    --brand-secondary:  #234058;   /* Pantone 7546 C */
+    --brand-tertiary:   #43718B;   /* Pantone 5405 C */
+    --brand-accent:     #F1BA55;   /* Pantone 142 C  — gold, decorative only */
+
+    /* Semantic colors (synthesized for WCAG 2.1 AA) */
+    --semantic-success:  #1F7A3A;
+    --semantic-warning:  #8A5A00;
+    --semantic-danger:   #B3261E;
+    --semantic-info:     #234058;
+    --neutral-bg:        #F4F6F8;
+    --neutral-fg:        #2F3D4C;
+    --border:            #7E8C9E;
+    --border-subtle:     #CBD5E0;
+
+    /* Choropleth sequential scale (light to dark, brand-coherent) */
+    --choro-0: #EAF1F6;
+    --choro-1: #B7CADB;
+    --choro-2: #7B9DBA;
+    --choro-3: #43718B;
+    --choro-4: #234058;
+    --choro-5: #2F3D4C;
+
+    /* Typography */
+    --font-display: 'Poppins', 'Segoe UI', system-ui, sans-serif;
+    --font-body:    'Poppins', 'Segoe UI', system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', 'Consolas', 'Menlo', monospace;
+
+    /* Spacing (4px base unit) */
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+    --s-5: 20px; --s-6: 24px; --s-8: 32px;
+
+    /* Radius */
+    --r-sm: 4px; --r-md: 8px; --r-lg: 16px;
+
+    /* Shadow */
+    --shadow-sm: 0 1px 2px rgba(47,61,76,0.06), 0 1px 1px rgba(47,61,76,0.04);
+    --shadow-md: 0 4px 8px rgba(47,61,76,0.08), 0 2px 4px rgba(47,61,76,0.06);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-body);
+    margin: 0;
+    padding: var(--s-6);
+    background: var(--neutral-bg);
+    color: var(--neutral-fg);
+    line-height: 1.5;
+  }
+
+  .scmap-container {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .scmap-header { margin-bottom: var(--s-4); }
+
+  .scmap-title {
+    font-family: var(--font-display);
+    font-size: 22px;
+    line-height: 30px;
+    font-weight: 600;
+    margin: 0 0 var(--s-1);
+    color: var(--neutral-fg);
+  }
+
+  .scmap-subtitle {
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--brand-tertiary);
+    margin: 0;
+  }
+
+  .scmap-wrapper {
+    position: relative;
+    background: #ffffff;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md);
+    padding: var(--s-4);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .scmap-canvas {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    position: relative;
+  }
+
+  .scmap-svg { width: 100%; height: 100%; display: block; }
+
+  /* District polygon states */
+  .scmap-district {
+    fill: var(--choro-0);
+    stroke: #ffffff;
+    stroke-width: 0.6;
+    cursor: pointer;
+    transition: fill 120ms ease, stroke 120ms ease;
+  }
+
+  .scmap-district:hover {
+    fill: var(--brand-tertiary);
+    stroke: var(--brand-primary);
+    stroke-width: 1.0;
+  }
+
+  .scmap-district.scmap-selected {
+    fill: var(--brand-secondary);
+    stroke: var(--brand-accent);
+    stroke-width: 1.5;
+  }
+
+  .scmap-state-outline {
+    fill: none;
+    stroke: var(--brand-primary);
+    stroke-width: 1.2;
+    pointer-events: none;
+  }
+
+  /* Tooltip */
+  .scmap-tooltip {
+    position: absolute;
+    background: var(--brand-primary);
+    color: #ffffff;
+    padding: var(--s-2) var(--s-3);
+    border-radius: var(--r-sm);
+    font-size: 12px;
+    line-height: 16px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+    box-shadow: var(--shadow-md);
+    white-space: nowrap;
+    z-index: 10;
+    font-family: var(--font-body);
+  }
+
+  .scmap-tooltip.scmap-visible { opacity: 1; }
+
+  .scmap-tooltip-name { font-weight: 600; }
+
+  .scmap-tooltip-value {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    margin-top: 2px;
+    color: var(--brand-accent);
+  }
+
+  /* Status / selection indicator */
+  .scmap-status {
+    margin-top: var(--s-3);
+    padding: var(--s-2) var(--s-3);
+    background: var(--neutral-bg);
+    border-radius: var(--r-sm);
+    font-size: 13px;
+    color: var(--neutral-fg);
+  }
+
+  .scmap-status .scmap-label {
+    color: var(--brand-tertiary);
+    margin-right: var(--s-2);
+  }
+
+  .scmap-status .scmap-value { font-weight: 600; }
+
+  /* Legend (shown when data is bound) */
+  .scmap-legend {
+    margin-top: var(--s-4);
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--border-subtle);
+    display: none;
+  }
+
+  .scmap-legend.scmap-visible { display: block; }
+
+  .scmap-legend-label {
+    font-size: 12px;
+    color: var(--brand-tertiary);
+    margin-bottom: var(--s-2);
+  }
+
+  .scmap-legend-bar {
+    display: flex;
+    height: 12px;
+    border-radius: var(--r-sm);
+    overflow: hidden;
+  }
+
+  .scmap-legend-stop { flex: 1; }
+
+  .scmap-legend-ticks {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--neutral-fg);
+    margin-top: var(--s-1);
+  }
+
+  /* Charter chips section (no-geometry districts) */
+  .scmap-charters {
+    margin-top: var(--s-5);
+    padding-top: var(--s-4);
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .scmap-charters-label {
+    font-size: 12px;
+    color: var(--brand-tertiary);
+    margin-bottom: var(--s-2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .scmap-charters-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+  }
+
+  .scmap-charter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-3);
+    background: var(--neutral-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--neutral-fg);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+
+  .scmap-charter-chip:hover {
+    background: #ffffff;
+    border-color: var(--brand-tertiary);
+  }
+
+  .scmap-charter-chip.scmap-selected {
+    background: var(--brand-secondary);
+    color: #ffffff;
+    border-color: var(--brand-accent);
+  }
+
+  .scmap-charter-name { font-weight: 500; }
+  .scmap-charter-sub { color: var(--brand-tertiary); font-size: 11px; }
+  .scmap-charter-chip.scmap-selected .scmap-charter-sub { color: var(--brand-accent); }
+</style>
+</head>
+<body>
+
+<div class="scmap-container">
+  <header class="scmap-header">
+    <h1 class="scmap-title">South Carolina school districts</h1>
+    <p class="scmap-subtitle">Click a district to select. Hover for details.</p>
+  </header>
+
+  <div class="scmap-wrapper">
+    <div class="scmap-canvas">
+      <svg class="scmap-svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="scmap-tooltip"></div>
+    </div>
+
+    <div class="scmap-status">
+      <span class="scmap-label">Selected:</span>
+      <span class="scmap-value scmap-selected-name">none</span>
+    </div>
+
+    <div class="scmap-legend">
+      <div class="scmap-legend-label scmap-legend-title">Per-pupil revenue</div>
+      <div class="scmap-legend-bar"></div>
+      <div class="scmap-legend-ticks"></div>
+    </div>
+
+    <div class="scmap-charters">
+      <div class="scmap-charters-label">Statewide charter &amp; special-purpose districts</div>
+      <div class="scmap-charters-list"></div>
+    </div>
+  </div>
+</div>
+
+<!--
+==========================================================================
+GEOMETRY DATA — replace this block at build time with the result of:
+
+  SELECT json_object(
+    'type', 'FeatureCollection',
+    'features', json_group_array(
+      json_object(
+        'type', 'Feature',
+        'properties', json_object(
+          'DISTRICT_ID', District_ID,
+          'GEOID', GEOID,
+          'NAME', District_Name_Normalized
+        ),
+        'geometry', Geometry_GeoJSON::JSON
+      )
+    )
+  )
+  FROM dim_district_geometry
+  WHERE Has_Geometry = TRUE;
+
+The placeholder below contains 2 demo features so this file renders standalone
+in a browser for component preview.
+==========================================================================
+-->
+<script id="sc-districts-geojson" type="application/json">
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "DISTRICT_ID": "2301", "GEOID": "4503000", "NAME": "Greenville 01" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-82.5,34.7],[-82.0,34.7],[-82.0,35.1],[-82.5,35.1],[-82.5,34.7]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "DISTRICT_ID": "1001", "GEOID": "4501290", "NAME": "Charleston 01" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-80.2,32.6],[-79.6,32.6],[-79.6,33.0],[-80.2,33.0],[-80.2,32.6]]]
+      }
+    }
+  ]
+}
+</script>
+
+<!--
+==========================================================================
+CHARTER / NO-GEOMETRY DISTRICTS — replace at build time with:
+
+  SELECT json_group_array(
+    json_object(
+      'districtId', District_ID,
+      'name', District_Name_Normalized,
+      'sub', Notes
+    )
+  )
+  FROM dim_district_geometry
+  WHERE Has_Geometry = FALSE
+  ORDER BY District_Name_Normalized;
+==========================================================================
+-->
+<script>
+window._SC_CHARTER_DISTRICTS = [
+  { districtId: "4701", name: "SC Public Charter School District", sub: "Statewide charter" },
+  { districtId: "4801", name: "Charter Institute at Erskine",       sub: "Statewide charter" },
+  { districtId: "4901", name: "Limestone Charter Association",      sub: "Charter association" }
+];
+</script>
+
+<!-- D3 v7 ESM CDN -->
+<script type="module">
+import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
+
+(function () {
+  'use strict';
+
+  const geoEl = document.getElementById('sc-districts-geojson');
+  const geo = JSON.parse(geoEl.textContent);
+  const charters = (window._SC_CHARTER_DISTRICTS || []).slice();
+
+  const svg = d3.select('.scmap-svg');
+  const tooltip = document.querySelector('.scmap-tooltip');
+  const selectedNameEl = document.querySelector('.scmap-selected-name');
+  const canvas = document.querySelector('.scmap-canvas');
+  const legend = document.querySelector('.scmap-legend');
+  const legendBar = document.querySelector('.scmap-legend-bar');
+  const legendTicks = document.querySelector('.scmap-legend-ticks');
+  const legendTitle = document.querySelector('.scmap-legend-title');
+  const chartersList = document.querySelector('.scmap-charters-list');
+
+  // SC-tuned Albers projection
+  const projection = d3.geoAlbers()
+    .rotate([81, 0])
+    .center([0, 33.8])
+    .parallels([32, 35]);
+  const path = d3.geoPath().projection(projection);
+  projection.fitExtent([[12, 12], [988, 588]], geo);
+
+  let selectedDistrictId = null;
+  let onSelectCb = null;
+  let onHoverCb = null;
+  let dataMap = null;       // { districtId: numericValue }
+  let dataFmt = (v) => v;   // formatting fn for tooltips and legend ticks
+
+  const choroSteps = ['--choro-0','--choro-1','--choro-2','--choro-3','--choro-4','--choro-5']
+    .map(t => getComputedStyle(document.documentElement).getPropertyValue(t).trim());
+
+  function colorFor(districtId) {
+    if (!dataMap) return null;            // null means: leave default class fill
+    const v = dataMap[districtId];
+    if (v == null || isNaN(v)) return choroSteps[0];
+    const values = Object.values(dataMap).filter(x => x != null && !isNaN(x));
+    const min = Math.min.apply(null, values);
+    const max = Math.max.apply(null, values);
+    if (max === min) return choroSteps[3];
+    const t = (v - min) / (max - min);
+    const idx = Math.min(choroSteps.length - 1, Math.floor(t * choroSteps.length));
+    return choroSteps[idx];
+  }
+
+  function applyChoroplethFill() {
+    svg.selectAll('.scmap-district')
+      .attr('fill', d => {
+        if (selectedDistrictId === d.properties.DISTRICT_ID) return null; /* selected style wins */
+        return colorFor(d.properties.DISTRICT_ID);
+      });
+  }
+
+  // Render district polygons
+  svg.append('g').attr('class', 'scmap-districts')
+    .selectAll('path')
+    .data(geo.features)
+    .join('path')
+    .attr('class', 'scmap-district')
+    .attr('d', path)
+    .attr('data-district-id', d => d.properties.DISTRICT_ID)
+    .attr('data-geoid', d => d.properties.GEOID)
+    .on('mousemove', handleMove)
+    .on('mouseenter', handleEnter)
+    .on('mouseleave', handleLeave)
+    .on('click', handleClick);
+
+  // State outline
+  svg.append('path')
+    .datum(geo)
+    .attr('class', 'scmap-state-outline')
+    .attr('d', path);
+
+  // Charter chips
+  charters.forEach(c => {
+    const btn = document.createElement('button');
+    btn.className = 'scmap-charter-chip';
+    btn.dataset.districtId = c.districtId;
+    btn.innerHTML =
+      '<span class="scmap-charter-name">' + escapeHtml(c.name) + '</span>' +
+      (c.sub ? ' <span class="scmap-charter-sub">· ' + escapeHtml(c.sub) + '</span>' : '');
+    btn.addEventListener('click', () => selectByDistrictId(c.districtId, c.name));
+    chartersList.appendChild(btn);
+  });
+
+  function handleMove(event, d) {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left + 12;
+    const y = event.clientY - rect.top + 12;
+    tooltip.style.left = x + 'px';
+    tooltip.style.top  = y + 'px';
+    const name = d.properties.NAME;
+    const did  = d.properties.DISTRICT_ID;
+    const val  = dataMap ? dataMap[did] : null;
+    tooltip.innerHTML =
+      '<div class="scmap-tooltip-name">' + escapeHtml(name) + '</div>' +
+      (val != null ? '<div class="scmap-tooltip-value">' + dataFmt(val) + '</div>' : '');
+  }
+  function handleEnter(event, d) {
+    tooltip.classList.add('scmap-visible');
+    if (onHoverCb) onHoverCb({ districtId: d.properties.DISTRICT_ID, geoid: d.properties.GEOID, name: d.properties.NAME });
+    document.dispatchEvent(new CustomEvent('sc-district-hover', {
+      detail: { districtId: d.properties.DISTRICT_ID, geoid: d.properties.GEOID, name: d.properties.NAME }
+    }));
+  }
+  function handleLeave() { tooltip.classList.remove('scmap-visible'); }
+  function handleClick(event, d) { selectByDistrictId(d.properties.DISTRICT_ID, d.properties.NAME, d.properties.GEOID); }
+
+  function selectByDistrictId(districtId, name, geoid) {
+    selectedDistrictId = districtId;
+    svg.selectAll('.scmap-district').classed('scmap-selected', dd => dd.properties.DISTRICT_ID === districtId);
+    chartersList.querySelectorAll('.scmap-charter-chip').forEach(b => {
+      b.classList.toggle('scmap-selected', b.dataset.districtId === districtId);
+    });
+    selectedNameEl.textContent = name || districtId;
+    applyChoroplethFill();
+    const detail = { districtId, geoid: geoid || null, name: name || null };
+    if (onSelectCb) onSelectCb(detail);
+    document.dispatchEvent(new CustomEvent('sc-district-select', { detail }));
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // Public API
+  window.SCMap = {
+    onSelect(fn) { onSelectCb = fn; },
+    onHover(fn)  { onHoverCb  = fn; },
+    select(districtId) {
+      const f = geo.features.find(ff => ff.properties.DISTRICT_ID === districtId);
+      const c = charters.find(cc => cc.districtId === districtId);
+      if (f)      selectByDistrictId(districtId, f.properties.NAME, f.properties.GEOID);
+      else if (c) selectByDistrictId(districtId, c.name);
+    },
+    clear() {
+      selectedDistrictId = null;
+      svg.selectAll('.scmap-district').classed('scmap-selected', false);
+      chartersList.querySelectorAll('.scmap-charter-chip').forEach(b => b.classList.remove('scmap-selected'));
+      selectedNameEl.textContent = 'none';
+      applyChoroplethFill();
+    },
+    getDistricts() {
+      return [
+        ...geo.features.map(f => ({
+          districtId: f.properties.DISTRICT_ID, geoid: f.properties.GEOID,
+          name: f.properties.NAME, hasGeometry: true
+        })),
+        ...charters.map(c => ({
+          districtId: c.districtId, geoid: null, name: c.name, hasGeometry: false, note: c.sub
+        }))
+      ];
+    },
+    setData(map, opts) {
+      dataMap = map || null;
+      opts = opts || {};
+      dataFmt = opts.format ? d3.format(opts.format) : (v => v);
+      legend.classList.toggle('scmap-visible', !!dataMap);
+      if (opts.label) legendTitle.textContent = opts.label;
+      if (dataMap) renderLegend(opts);
+      applyChoroplethFill();
+    }
+  };
+
+  function renderLegend(opts) {
+    legendBar.innerHTML = '';
+    choroSteps.forEach(c => {
+      const stop = document.createElement('div');
+      stop.className = 'scmap-legend-stop';
+      stop.style.background = c;
+      legendBar.appendChild(stop);
+    });
+    const values = Object.values(dataMap).filter(x => x != null && !isNaN(x));
+    if (!values.length) return;
+    const min = Math.min.apply(null, values);
+    const max = Math.max.apply(null, values);
+    legendTicks.innerHTML = '<span>' + dataFmt(min) + '</span><span>' + dataFmt(max) + '</span>';
+  }
+})();
+</script>
+
+</body>
+</html>

@@ -28,7 +28,6 @@
         "sy_label": "School year label, e.g. '2024-25'."
       }
     },
-
     "code_accounting_codes": {
       "purpose": "The authoritative SC Financial Accounting Handbook code catalog. Source for tooltip descriptions on every code rendered in any report.",
       "stability": "stable",
@@ -121,7 +120,6 @@
         "Classification_Rule_Order": "Rule_Order of the rule that matched. NULL = no rule matched."
       }
     },
-
     "sceis_agency_master": {
       "purpose": "Canonical dimension for H630 (SCDE) organizational structure. Joins to detail transactions on four equivalent keys: Cost_Center, Functional_Area, AGY_Funded_Program, State_Funded_Program.",
       "stability": "stable",
@@ -192,7 +190,6 @@
         "Amount": "Payment amount."
       }
     },
-
     "lea_revenues": {
       "purpose": "District-level annual revenue, normalized to tidy form. Source files are wide-pivot with districts as columns; this table is the unpivoted result. District self-reported, NOT the system of record — see Reported_Flag for submission status.",
       "stability": "stable",
@@ -294,7 +291,20 @@
         "Audit_Standard": "Audit standard amount. Null for FY23+."
       }
     },
-
+    "lookup_district_exclusions": {
+      "purpose": "Report-time filter listing special schools and non-traditional LEAs that must be excluded from all district-comparison reports. Data is retained in source tables; this table is joined at query time to suppress rows. Supports per-scope and time-bounded exclusions for forward flexibility.",
+      "stability": "stable",
+      "source": "Manually seeded by code-catalog agent 2026-04-28. Add rows here; do not delete source data.",
+      "columns": {
+        "District_ID": "Zero-padded 4-digit SC district ID. Joins to dim_district.District_ID. The district remains in dim_district and all fact tables — this entry only triggers report-time suppression.",
+        "Exclude_Scope": "Scope of the exclusion: 'all_reports' suppresses the district everywhere; 'statewide_aggregates_only' removes from weighted-average calculations but keeps in detail views; 'comparison_charts_only' hides from peer charts. Extensible — add new scope values without a migration.",
+        "Effective_FY_From": "SMALLINT. First fiscal year (4-digit ending year) this exclusion applies. NULL = no lower bound (applies from the beginning of data).",
+        "Effective_FY_To": "SMALLINT. Last fiscal year (4-digit ending year) this exclusion applies. NULL = no upper bound (applies indefinitely).",
+        "Reason": "Human-readable explanation for why the district is excluded. Required — must not be empty.",
+        "Notes": "Optional supplementary notes, e.g. statutory reference or ticket number.",
+        "Created_At": "Timestamp when this exclusion row was inserted. Auto-populated by DEFAULT CURRENT_TIMESTAMP."
+      }
+    },
     "mart_district_revenue_rollup": {
       "purpose": "Denormalized rollup joining lea_revenues to code_district_funding_streams + code_accounting_codes. Powers all three modes of the report-district-revenue agent. Rebuilt by that agent when source data changes.",
       "stability": "derived",
@@ -308,6 +318,27 @@
         "Display_Title": "Short label for dashboards.",
         "Rollup_Level": "1-4 hierarchy depth for detail mode rendering.",
         "Amount": "Annual revenue dollars (signed; revenues are positive)."
+      }
+    },
+    "dim_district_geometry": {
+      "purpose": "Geographic dimension for SC school districts: maps SCDE District_ID to its US Census TIGER GEOID, polygon geometry (as GeoJSON text), and shapely-computed geographic centroid. One row per District_ID. Districts without a fixed territory (statewide charters, special-purpose schools, Barnwell merger remnants) are present as Has_Geometry=FALSE rows so joins from fact tables are 1:1 across the full dim_district.",
+      "stability": "stable",
+      "source": "Loaded 2026-04-28 from data/geo/sc_districts.geojson (extracted from data/uploads/sc-districts-map.html, US Census TIGER vintage). Crosswalk built by code-catalog via name-matching against dim_district. Florence 01 (2101) geometry is the shapely.unary_union of the original Florence 01 polygon and the pre-2013 Florence 4 polygon (GEOID 4502220), per user adjudication 2026-04-28.",
+      "columns": {
+        "District_ID": "Zero-padded 4-digit SC district ID. PRIMARY KEY. Joins 1:1 to dim_district.District_ID for all 83 entries.",
+        "GEOID": "US Census TIGER GEOID (e.g., '4503000' for McCormick). NULL for the 11 districts without a fixed geographic boundary (statewide charters, special-purpose schools, Barnwell merger remnants).",
+        "District_Name_Normalized": "Display-ready district name. For matched rows this is the SCDE District_Name (e.g., 'Greenville 01'); for any unmatched cases this would fall back to the GeoJSON NAME. Required.",
+        "GeoJSON_Name": "Original NAME property from the Census GeoJSON feature (e.g., 'Greenville County School District'). NULL for no-geometry rows. Useful for traceability back to the source.",
+        "LSAD": "US Census Legal/Statistical Area Description code from the GeoJSON feature. Typically '00' for school district areas. NULL for no-geometry rows.",
+        "Geometry_GeoJSON": "Full feature geometry serialized as JSON text (Polygon or MultiPolygon). Stored as VARCHAR rather than native GEOMETRY to avoid the DuckDB spatial-extension dependency; can be migrated to native if spatial queries are needed. NULL for no-geometry rows. Lengths range ~960 to ~8700 chars.",
+        "Has_Geometry": "TRUE for the 72 districts with a polygon, FALSE for the 11 charter / special / merger-remnant districts. Indexable; use this rather than 'Geometry_GeoJSON IS NOT NULL' for filtering.",
+        "Centroid_Lon": "Geographic centroid longitude in decimal degrees (WGS84), computed via shapely.geometry.shape(geometry).centroid. Use for label placement and bubble-map positioning. More accurate than the bounding-box midpoint for irregular shapes (Charleston, Horry). NULL for no-geometry rows.",
+        "Centroid_Lat": "Geographic centroid latitude in decimal degrees (WGS84), computed via shapely. NULL for no-geometry rows.",
+        "Match_Method": "How the District_ID-to-GEOID mapping was determined. Values: 'normalized' (deterministic name match), 'normalized_with_merger' (name match with shapely.unary_union of an additional historical polygon — currently only Florence 01 carrying pre-2013 Florence 4 territory), 'unmatched_scde_only' (SCDE district with no GeoJSON polygon, Has_Geometry=FALSE).",
+        "Match_Confidence": "Confidence band for the match: 'high' (deterministic), 'medium' (heuristic), 'low' (manual review needed), 'none' (no geometry to match). All current rows are 'high' or 'none'.",
+        "Notes": "Free-text supplementary notes. Populated for: Florence 01 (Florence 4 merger context); all 11 no-geometry rows (explanation of why no boundary exists). NULL for the 71 standard 'normalized' geometry rows.",
+        "Source_File": "Path to the GeoJSON file the geometry was loaded from. Defaults to 'data/geo/sc_districts.geojson'.",
+        "Loaded_At": "Timestamp when this row was inserted into the canonical table. Auto-populated by DEFAULT CURRENT_TIMESTAMP."
       }
     }
   }

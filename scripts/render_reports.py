@@ -112,7 +112,7 @@ FOOTER_COMMON = """
     </div>
     <div>
       <strong style="color:var(--ink-700);">Excluded Entities</strong><br>
-      DJJ (5208), DOC (5209), and Governor's Schools for Arts &amp; Humanities (5364) and Science &amp; Mathematics (5395) are excluded from aggregates and comparison rows. They receive SCEIS H630 appropriations not routed through the standard LEA revenue ledger.
+      Per <code>lookup_district_exclusions</code> (<code>Exclude_Scope='all_reports'</code>): SC Governor's School for Agriculture at John De La Howe (5205), SC School for the Deaf and the Blind (5207), DJJ (5208), DOC (5209), Governor's School for the Arts and Humanities (5364), and Governor's School for Science and Mathematics (5395). State-agency schools (DJJ, DOC) and special-purpose schools receive direct appropriations not routed through the standard LEA revenue ledger; the lookup table is the single source of truth for this list.
     </div>
     <div>
       <strong style="color:var(--ink-700);">Methodology</strong><br>

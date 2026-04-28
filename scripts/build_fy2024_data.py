@@ -43,7 +43,12 @@ r = con.execute("""
     FROM lea_revenues r
     LEFT JOIN code_district_funding_streams f ON r.Revenue_Code = f.REV_Code
     WHERE r.FY=2024 AND r.Reported_Flag=TRUE
-    AND r.District_ID NOT IN ('5208','5209','5364','5395')
+    AND r.District_ID NOT IN (
+        SELECT District_ID FROM lookup_district_exclusions
+        WHERE Exclude_Scope = 'all_reports'
+          AND (Effective_FY_From IS NULL OR Effective_FY_From <= 2024)
+          AND (Effective_FY_To   IS NULL OR Effective_FY_To   >= 2024)
+    )
 """).fetchall()
 
 BARNWELL_MERGE = {'0645': '0601', '0648': '0601'}
@@ -63,7 +68,12 @@ headcounts = {row[0]: row[1] for row in hc_rows}
 
 districts_raw = con.execute("""
     SELECT District_ID, District_Name FROM dim_district
-    WHERE District_ID NOT IN ('5208','5209','5364','5395')
+    WHERE District_ID NOT IN (
+        SELECT District_ID FROM lookup_district_exclusions
+        WHERE Exclude_Scope = 'all_reports'
+          AND (Effective_FY_From IS NULL OR Effective_FY_From <= 2024)
+          AND (Effective_FY_To   IS NULL OR Effective_FY_To   >= 2024)
+    )
     ORDER BY District_Name
 """).fetchall()
 

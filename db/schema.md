@@ -39,6 +39,7 @@ after either changes.
 ### Dimensions
 - `dim_district` (District_ID PK, District_Name, normalized_name, source_files[])
 - `dim_fiscal_year` (FY PK, start_date, end_date, sy_label)
+- `dim_district_geometry` (District_ID PK, GEOID, District_Name_Normalized, GeoJSON_Name, LSAD, Geometry_GeoJSON, Has_Geometry, Centroid_Lon, Centroid_Lat, Match_Method, Match_Confidence, Notes, Source_File, Loaded_At) — 83 rows; 72 with Census TIGER polygons, 11 without (statewide charters, special schools, Barnwell merger remnants). Florence 01 includes unioned pre-2013 Florence 4 territory. Source: `data/geo/sc_districts.geojson`.
 
 ### sceis_*  — owned by `sceis-data`
 - `sceis_agency_master` (Cost_Center PK, Name, Functional_Area, Mini_Code FK, ...)

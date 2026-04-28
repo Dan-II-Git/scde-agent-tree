@@ -10,7 +10,17 @@
       "Bash(1,545,650)",
       "Bash(864,450)",
       "Bash(31,415)",
-      "Bash(where duckdb *)"
+      "Bash(where duckdb *)",
+      "Bash(cp *)",
+      "Bash(cmd *)",
+      "PowerShell($src = \"C:\\\\Users\\\\Dan's Test Device\\\\Finance Dazzle\\\\design\"; $link = \"C:\\\\Users\\\\Dan's Test Device\\\\Finance Dazzle\\\\scde-agent-tree\\\\docs\\\\style\\\\scde-design\"; cmd /c mklink /J \"$link\" \"$src\")",
+      "Bash(duckdb db/scde.duckdb \"SELECT * FROM lookup_district_exclusions ORDER BY District_ID;\")",
+      "Bash(python3 scripts/build_chart_data_v2.py)",
+      "Read(//tmp/**)",
+      "Bash(awk 'NR>=160 && NR<=180' \"C:/Users/Dan's Test Device/Finance Dazzle/scde-agent-tree/data/uploads/sc-districts-map.html\")",
+      "Bash(awk 'NR==181 {print length\\($0\\)}' \"C:/Users/Dan's Test Device/Finance Dazzle/scde-agent-tree/data/uploads/sc-districts-map.html\")",
+      "Bash(awk NR>=185 && NR<=260 *)",
+      "Bash(git add *)"
     ]
   }
 }

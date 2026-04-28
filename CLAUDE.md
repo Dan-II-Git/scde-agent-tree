@@ -75,16 +75,39 @@ SCEIS (local taxes/fees, district-side operational detail). See the
   any prose total quoted by a layer agent (e.g. "7 rows total $(228,269)").
   Zero is `$0`, never `$(0)`. The minus glyph and the `-` prefix should
   not appear next to dollar amounts in user-facing output. Style negatives
-  with `var(--danger-fg)` from the Look Deeper tokens so they read at a
-  glance.
+  with `semantic.danger` (`#B3261E`) from the SCDE design tokens so they
+  read at a glance.
 - **HTML dashboards.** Report outputs default to single-file HTML using
-  the **Look Deeper design system** at `docs/style/look-deeper-design-system.html`
-  as the canonical reference. Lift its `:root` design tokens (SCDE
-  palette, Poppins/JetBrains Mono typography, 4px spacing scale, radius,
-  shadows) and component patterns (cards, tables, badges, KPI tiles)
-  rather than reinventing styling per report. Charts use Recharts via
-  inline ES modules and should consume the same brand tokens
-  (`--brand-navy`, `--brand-gold`, `--brand-slate`) for series colors.
+  the **SCDE Finance design system** at `docs/style/scde-design/` as the
+  canonical reference. Authoritative files:
+  - `docs/style/scde-design/style-guide.md` — palette, typography, logo,
+    accessibility, data-viz rules.
+  - `docs/style/scde-design/tokens.json` — machine-readable design tokens
+    (brand, semantic, categorical, projection, type scale, space, radius,
+    shadow). Lift these directly; do not invent ad-hoc values.
+  - `docs/style/scde-design/contrast-audit.md` — WCAG 2.1 AA contrast
+    ratios for every token pair, with mitigation policy for sub-3:1
+    categorical colors.
+  - `docs/style/scde-design/mockups/` — reference layouts for landing,
+    longitudinal chart, line-item drilldown, export controls, audience
+    toggle.
+
+  Brand palette (sourced from `SCDE Brand Guidelines (1).pdf` p.7):
+  `brand.primary` `#2F3D4C` (Pantone 432 C), `brand.secondary` `#234058`
+  (7546 C), `brand.tertiary` `#43718B` (5405 C), `brand.accent` `#F1BA55`
+  (142 C — gold, decorative-only on white; AA-passing inside dark-text
+  badges). Typography is Poppins (display+body) with JetBrains Mono for
+  tabular currency and COA codes.
+
+  Charts use Recharts via inline ES modules. Series colors come from
+  `color.data.categorical[]` (Okabe-Ito, colorblind-safe; index 0 swapped
+  to SCDE dark blue, index 7 to neutral dark gray). Historical-vs-projected
+  line treatment, 80% CI bands, partial-FY badges, and insufficient-data
+  hatch follow the rules in `style-guide.md` §5.
+
+  This design system **supersedes** the prior `look-deeper-design-system.html`
+  reference. The Look Deeper tokens (`--brand-navy`, `--brand-gold`,
+  `--brand-slate`) and CSS variable conventions are no longer authoritative.
 - **Tooltips on codes.** Every accounting code rendered in a report
   must have a hover/tap tooltip showing its handbook description, with
   a way to expand to the full definition. Use Tippy.js, not native
