@@ -92,7 +92,31 @@ def _legend_html(items: list[tuple[str, str]]) -> str:
 def _wrap(body: str) -> str:
     """Wrap a rendered report body with the inline <style> block so reports
     are self-contained and don't depend on the dashboard's CSS."""
-    return f"<style>{REPORT_CSS}</style>{body}"
+    return f"<style>{REPORT_CSS}</style>{body}{TIPPY_BUNDLE}"
+
+
+def code_info_button(code: str, title: str | None,
+                     short_desc: str | None, full_desc: str | None,
+                     max_full_chars: int = 600) -> str:
+    """
+    Render a small "i" button next to a Revenue_Code that surfaces
+    Short_Description on click via Tippy.js, with a "Show full" toggle
+    that expands to Full_Description (truncated at max_full_chars).
+    Returns inline HTML; the Tippy init script reads data-* attributes.
+    """
+    if not short_desc and not full_desc:
+        return ""
+    full_part = html.escape(full_desc or "")
+    if full_part and len(full_part) > max_full_chars:
+        full_part = full_part[:max_full_chars].rsplit(" ", 1)[0] + "…"
+    return (
+        f'<button class="info-btn" '
+        f'data-code="{html.escape(code)}" '
+        f'data-title="{html.escape(title or code)}" '
+        f'data-short="{html.escape(short_desc or "")}" '
+        f'data-full="{full_part}" '
+        f'aria-label="Show description for code {html.escape(code)}">i</button>'
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -152,6 +176,74 @@ REPORT_CSS = """
 .scde-report .chart-legend { display: flex; flex-wrap: wrap; gap: 12px 18px; padding: 8px 4px 0; font-size: 11px; color: var(--neutral-fg); }
 .scde-report .chart-legend .legend-item { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-display); }
 .scde-report .chart-legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; border: 1px solid rgba(47,61,76,0.15); flex-shrink: 0; }
+.scde-report .code-cell { white-space: nowrap; }
+.scde-report .info-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin-left: 4px; padding: 0;
+  border: 1px solid var(--brand-tertiary); background: white;
+  color: var(--brand-tertiary); border-radius: 50%;
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  font-style: italic; cursor: pointer; line-height: 1; vertical-align: middle;
+  transition: background 120ms ease, color 120ms ease;
+}
+.scde-report .info-btn:hover, .scde-report .info-btn:focus {
+  background: var(--brand-tertiary); color: white; outline: none;
+}
+.tippy-content .code-tip-header { font-weight: 600; color: var(--brand-primary); margin-bottom: 6px; font-size: 13px; }
+.tippy-content .code-tip-short { font-size: 12px; color: var(--neutral-fg); margin-bottom: 8px; line-height: 1.4; }
+.tippy-content .code-tip-full { font-size: 11px; color: var(--neutral-fg); line-height: 1.45; border-top: 1px solid var(--border-subtle); padding-top: 6px; max-height: 180px; overflow-y: auto; }
+.tippy-content .code-tip-full-toggle { font-size: 11px; color: var(--brand-tertiary); cursor: pointer; text-decoration: underline; background: none; border: none; padding: 0; font-family: inherit; }
+"""
+
+TIPPY_BUNDLE = """
+<script src="https://unpkg.com/@popperjs/core@2"></script>
+<script src="https://unpkg.com/tippy.js@6"></script>
+<link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light-border.css">
+<script>
+(function() {
+  if (typeof tippy === 'undefined') return;
+  if (window.__scdeInfoTippyInit) { window.__scdeInfoTippyInit(); return; }
+  window.__scdeInfoTippyInit = function() {
+    document.querySelectorAll('.info-btn').forEach(function(el) {
+      if (el._tippy) return;
+      tippy(el, {
+        theme: 'light-border',
+        allowHTML: true, interactive: true, trigger: 'click',
+        appendTo: function() { return document.body; },
+        placement: 'top', maxWidth: 360,
+        content: function(node) {
+          var code = node.dataset.code || '';
+          var title = node.dataset.title || '';
+          var short = node.dataset.short || '';
+          var full = node.dataset.full || '';
+          var html = '<div class="code-tip-header">' + code + ' — ' + title + '</div>';
+          if (short) html += '<div class="code-tip-short">' + short + '</div>';
+          if (full && full !== short) {
+            html += '<button class="code-tip-full-toggle">Show full description</button>';
+            html += '<div class="code-tip-full" style="display:none;">' + full + '</div>';
+          }
+          return html;
+        },
+        onShown: function(instance) {
+          var btn = instance.popper.querySelector('.code-tip-full-toggle');
+          if (!btn) return;
+          btn.addEventListener('click', function() {
+            var full = instance.popper.querySelector('.code-tip-full');
+            if (full.style.display === 'none') {
+              full.style.display = 'block';
+              btn.textContent = 'Hide full description';
+            } else {
+              full.style.display = 'none';
+              btn.textContent = 'Show full description';
+            }
+          });
+        },
+      });
+    });
+  };
+  window.__scdeInfoTippyInit();
+})();
+</script>
 """
 
 
@@ -219,10 +311,15 @@ def render_detail(data: dict[str, Any]) -> str:
                     desc = html.escape(it["full_name"] or it["display_title"] or "")
                     code = html.escape(it["code"])
                     cat_label = html.escape(cat)
-                    title_attr = html.escape((it["short_description"] or "")[:200])
+                    info_btn = code_info_button(
+                        it["code"],
+                        it["full_name"] or it["display_title"],
+                        it["short_description"],
+                        it.get("full_description"),
+                    )
                     rows_html.append(
                         f'<tr class="{cls}">'
-                        f'<td><span class="badge info" title="{title_attr}">{code}</span></td>'
+                        f'<td class="code-cell"><span class="badge info">{code}</span> {info_btn}</td>'
                         f'<td>{cat_label}</td>'
                         f'<td>{desc}</td>'
                         f'{_money_cell(it["amount"])}'

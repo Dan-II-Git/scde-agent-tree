@@ -227,6 +227,7 @@ def get_detail_rows(district_id: str, fy: int) -> dict[str, Any]:
           cdfs.Rollup_Level,
           cac.Full_Name,
           cac.Short_Description,
+          cac.Full_Description,
           lr.Amount,
           {BUCKET_CASE} AS bucket
         FROM lea_revenues lr
@@ -234,9 +235,12 @@ def get_detail_rows(district_id: str, fy: int) -> dict[str, Any]:
                ON lr.Revenue_Code = cdfs.REV_Code
         LEFT JOIN code_accounting_codes cac
                ON cac.Code = lr.Revenue_Code AND cac.Type = 'Revenue'
+        JOIN vw_revenue_code_status v
+               ON v.REV_Code = lr.Revenue_Code
         WHERE lr.District_ID = ?
           AND lr.FY = ?
           AND lr.Reported_Flag = TRUE
+          AND v.Is_Statewide_Dormant = FALSE
         ORDER BY cdfs.Stream_Type NULLS LAST, cdfs.Category NULLS LAST, lr.Revenue_Code
         """,
         [district_id, fy],
@@ -250,8 +254,9 @@ def get_detail_rows(district_id: str, fy: int) -> dict[str, Any]:
             "rollup_level": r[4],
             "full_name": r[5] or r[3],
             "short_description": r[6] or "",
-            "amount": float(r[7]) if r[7] is not None else 0.0,
-            "bucket": r[8],
+            "full_description": r[7] or "",
+            "amount": float(r[8]) if r[8] is not None else 0.0,
+            "bucket": r[9],
         }
         for r in rows
     ]
