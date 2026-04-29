@@ -240,7 +240,22 @@ CREATE TABLE IF NOT EXISTS lea_wpu_allocations (
 -- Marts (populated by report agents as needed)
 -- ============================================================
 
--- mart_district_revenue_rollup is populated lazily by report-district-revenue.
+-- mart_district_revenue_rollup: one row per (District_ID, FY, Revenue_Code).
+-- Owned by report-district-revenue. Built by joining lea_revenues (Reported_Flag=TRUE)
+-- to code_district_funding_streams, with INNER JOIN to vw_revenue_code_status to
+-- enforce Is_Statewide_Dormant = FALSE (dormancy mask applied at build time).
+-- Rebuilt whenever lea_revenues or code_district_funding_streams changes.
+CREATE TABLE IF NOT EXISTS mart_district_revenue_rollup (
+    District_ID     VARCHAR     NOT NULL,
+    FY              SMALLINT    NOT NULL,
+    Revenue_Code    VARCHAR     NOT NULL,
+    Stream_Type     VARCHAR,
+    Category        VARCHAR,
+    Display_Title   VARCHAR,
+    Rollup_Level    SMALLINT,
+    Amount          DECIMAL(18, 2),
+    PRIMARY KEY (District_ID, FY, Revenue_Code)
+);
 
 -- Funding-projection output mart. Owned by the funding-projections agent
 -- (not yet implemented). Rebuilt by that agent's pipeline SQL. Stores
