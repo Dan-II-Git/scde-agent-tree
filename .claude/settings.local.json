@@ -60,7 +60,10 @@
       "Bash(curl -sSL -o \"data/uploads/rfa_reports/FY2024-25_Revenue_Per_Pupil.pdf\" \"https://rfa.sc.gov/sites/default/files/2024-10/FY%202024-25%20Revenue%20Per%20Pupil%20Report%20by%20District.pdf\")",
       "Bash(curl -sSL -o \"data/uploads/rfa_reports/FY2023-24_Revenue_Per_Pupil.pdf\" \"https://rfa.sc.gov/sites/default/files/2023-12/FY%202023-24%20Revenue%20Per%20Pupil%20Report%20by%20District%2012.4.23.pdf\")",
       "Bash(curl -sSL -o \"data/uploads/rfa_reports/FY2020-21_Revenue_Per_Pupil.pdf\" \"https://rfa.sc.gov/sites/default/files/2020-11/Rev%20Per%20Pupil%20by%20District%20FINAL%20FY%2021.pdf\")",
-      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projections.py)"
+      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projections.py)",
+      "Bash(powershell *)",
+      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district \"Aiken 01\")",
+      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district \"Beaufort 01\")"
     ]
   }
 }

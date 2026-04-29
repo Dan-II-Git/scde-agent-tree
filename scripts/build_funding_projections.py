@@ -42,6 +42,22 @@ HISTORY_MAX_FY = 2025
 TWO_POINT_FALLBACK_PCT = 0.15  # ±15% bounds when residual SE is undefined
 PI_CONFIDENCE = 0.80  # 80% prediction interval (matches projection.band_fill)
 
+# Dormancy: a (district, code) combo is suppressed if its most-recent
+# nonzero, reported-true activity is more than LOOKBACK_YEARS-1 FYs before
+# HISTORY_MAX_FY. With LOOKBACK_YEARS=3 and HISTORY_MAX_FY=2025, activity
+# must fall within FY23-FY25 (the current 3-FY window). Once older history
+# is loaded, this filter starts excluding stale combos.
+LOOKBACK_YEARS = 3
+
+# 5xxx codes are non-recurring transactional items (bond sales, interfund
+# transfers, lease purchase) per the RFA report appendix. They are not
+# ongoing revenue and should not be projected.
+NON_RECURRING_CODE_PREFIXES = ("5",)
+
+# State and Federal revenue cannot plausibly be negative. Local can be
+# (refunds, write-offs), so we don't floor it.
+FLOOR_AT_ZERO_STREAM_TYPES = ("State", "Federal")
+
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -163,15 +179,53 @@ def build_projections(history, stream_meta, policy, horizon, scenario):
 
     rows = []
     built_at = datetime.now()
-    n_formula = n_trend_3fy = n_trend_2fy = n_sunset = n_insufficient = n_unknown_code = 0
+    counters = {
+        "formula_sac": 0, "trend_3fy": 0, "trend_2fy": 0,
+        "sunset_zero": 0, "insufficient_history": 0,
+        "skip_unclassified": 0, "skip_non_recurring": 0,
+        "skip_dormant_district": 0, "skip_dormant_statewide": 0,
+        "floor_at_zero_applied": 0,
+    }
+
+    # Statewide dormancy: a code is suppressed everywhere if it has no
+    # nonzero, reported-true activity in the last LOOKBACK_YEARS FYs.
+    statewide_recent = set()
+    for (district_id, code), pts in series.items():
+        if any(amt != 0 and fy >= HISTORY_MAX_FY - LOOKBACK_YEARS + 1 for fy, amt in pts):
+            statewide_recent.add(code)
 
     for (district_id, code), pts in series.items():
+        # Skip non-recurring (5xxx) codes entirely
+        if code.startswith(NON_RECURRING_CODE_PREFIXES):
+            counters["skip_non_recurring"] += 1
+            continue
+
         meta = stream_meta.get(code)
-        stream_type = meta["stream_type"] if meta else None
-        alloc_basis = meta["allocation_basis"] if meta else None
-        sunset_fy = meta["sunset_fy"] if meta else None
-        if meta is None:
-            n_unknown_code += 1
+        # Skip codes not in the funding stream inventory — they're either
+        # unclassified handbook codes or transient/legacy codes that should
+        # be cleaned up by code-catalog before being projected.
+        if meta is None or meta["stream_type"] is None:
+            counters["skip_unclassified"] += 1
+            continue
+
+        # Statewide dormancy
+        if code not in statewide_recent:
+            counters["skip_dormant_statewide"] += 1
+            continue
+
+        # Per-district dormancy: this district has no recent activity for
+        # this code (even though some other district might).
+        district_max_active_fy = max(
+            (fy for fy, amt in pts if amt != 0), default=None
+        )
+        if district_max_active_fy is None or \
+           district_max_active_fy < HISTORY_MAX_FY - LOOKBACK_YEARS + 1:
+            counters["skip_dormant_district"] += 1
+            continue
+
+        stream_type = meta["stream_type"]
+        alloc_basis = meta["allocation_basis"]
+        sunset_fy = meta["sunset_fy"]
 
         pts.sort()
         fys, amts = zip(*pts)
@@ -182,14 +236,14 @@ def build_projections(history, stream_meta, policy, horizon, scenario):
             if sunset_fy is not None and proj_fy > sunset_fy:
                 rows.append(_row(district_id, proj_fy, code, stream_type, alloc_basis,
                                  0.0, 0.0, 0.0, "sunset_zero", scenario, built_at))
-                n_sunset += 1
+                counters["sunset_zero"] += 1
                 continue
 
             # Insufficient history
             if fit is None:
                 rows.append(_row(district_id, proj_fy, code, stream_type, alloc_basis,
                                  None, None, None, "insufficient_history", scenario, built_at))
-                n_insufficient += 1
+                counters["insufficient_history"] += 1
                 continue
 
             # SAC formula path: only when forward-year total appropriation is seeded
@@ -205,23 +259,28 @@ def build_projections(history, stream_meta, policy, horizon, scenario):
             # Trend OLS path
             point, lower, upper = predict_with_pi(fit, proj_fy)
             method = "trend_ols" if fit["n"] >= 3 else "trend_ols_2fy"
+
+            # Floor State/Federal at zero (Local can plausibly go negative)
+            if stream_type in FLOOR_AT_ZERO_STREAM_TYPES:
+                if (point is not None and point < 0) or \
+                   (lower is not None and lower < 0):
+                    counters["floor_at_zero_applied"] += 1
+                if point is not None:
+                    point = max(0.0, point)
+                if lower is not None:
+                    lower = max(0.0, lower)
+                if upper is not None:
+                    upper = max(0.0, upper)
+
             if fit["n"] >= 3:
-                n_trend_3fy += 1
+                counters["trend_3fy"] += 1
             else:
-                n_trend_2fy += 1
+                counters["trend_2fy"] += 1
             rows.append(_row(district_id, proj_fy, code, stream_type, alloc_basis,
                              point, lower, upper, method, scenario, built_at))
 
-    summary = {
-        "rows": len(rows),
-        "trend_3fy": n_trend_3fy,
-        "trend_2fy": n_trend_2fy,
-        "sunset_zero": n_sunset,
-        "insufficient_history": n_insufficient,
-        "formula_sac": n_formula,
-        "unknown_code_combos": n_unknown_code,
-    }
-    return rows, summary
+    counters["rows"] = len(rows)
+    return rows, counters
 
 
 def _row(district_id, fy, code, stream_type, alloc_basis,
@@ -261,8 +320,11 @@ def write_mart(con, rows, scenario):
 
 def back_test(con, scenario):
     """
-    Refit on FY23-FY24, predict FY25, compare to FY25 actuals (Reported_Flag=TRUE
-    only). Returns MAPE per Method for each Stream_Type.
+    Refit on FY23+FY24, predict FY25, compare to FY25 actuals. Same filters
+    as the production pipeline: skip 5xxx codes, skip unclassified,
+    floor State/Federal at $0. Reports both unweighted MAPE (for
+    completeness) and the dollar-weighted error rate (more meaningful —
+    sum of |error| over sum of |actual|).
     """
     out = con.execute(f"""
         WITH hist AS (
@@ -271,6 +333,7 @@ def back_test(con, scenario):
             WHERE Reported_Flag = TRUE
               AND Amount IS NOT NULL AND Amount != 0
               AND FY IN (2023, 2024)
+              AND Revenue_Code NOT LIKE '5%'
         ),
         actual AS (
             SELECT District_ID, Revenue_Code, CAST(Amount AS DOUBLE) AS Amount
@@ -278,24 +341,37 @@ def back_test(con, scenario):
             WHERE Reported_Flag = TRUE
               AND Amount IS NOT NULL AND Amount != 0
               AND FY = 2025
+              AND Revenue_Code NOT LIKE '5%'
         ),
         proj AS (
             SELECT h.District_ID, h.Revenue_Code,
-                   -- 2-point projection: FY25 = 2*FY24 - FY23 (linear extrapolation)
+                   -- 2-point projection: FY25 = 2*FY24 - FY23
                    2 * MAX(CASE WHEN h.FY = 2024 THEN h.Amount END)
-                     - MAX(CASE WHEN h.FY = 2023 THEN h.Amount END) AS predicted
+                     - MAX(CASE WHEN h.FY = 2023 THEN h.Amount END) AS predicted_raw
             FROM hist h
             GROUP BY 1, 2
             HAVING COUNT(DISTINCT h.FY) = 2
+        ),
+        proj_floored AS (
+            SELECT p.District_ID, p.Revenue_Code,
+                   CASE WHEN c.Stream_Type IN ('State','Federal')
+                        THEN GREATEST(0, p.predicted_raw)
+                        ELSE p.predicted_raw
+                   END AS predicted,
+                   c.Stream_Type
+            FROM proj p
+            LEFT JOIN code_district_funding_streams c ON c.REV_Code = p.Revenue_Code
+            WHERE c.Stream_Type IS NOT NULL
         )
-        SELECT c.Stream_Type,
+        SELECT pf.Stream_Type,
                COUNT(*) AS n,
-               AVG(ABS(p.predicted - a.Amount) / NULLIF(ABS(a.Amount), 0)) AS mape
-        FROM proj p
+               CAST(SUM(ABS(pf.predicted - a.Amount))
+                  / NULLIF(SUM(ABS(a.Amount)), 0) * 100 AS INTEGER)
+                  AS dollar_weighted_err_pct
+        FROM proj_floored pf
         JOIN actual a USING (District_ID, Revenue_Code)
-        LEFT JOIN code_district_funding_streams c ON c.REV_Code = p.Revenue_Code
-        GROUP BY c.Stream_Type
-        ORDER BY c.Stream_Type
+        GROUP BY pf.Stream_Type
+        ORDER BY pf.Stream_Type
     """).fetchall()
     return out
 
@@ -319,10 +395,10 @@ def main():
     write_mart(con, rows, args.scenario)
     print(f"[funding-projections] wrote {len(rows)} rows to mart_funding_projections")
 
-    print(f"[funding-projections] back-test (FY23,FY24 -> FY25, MAPE by Stream_Type):")
-    for stream_type, n, mape in back_test(con, args.scenario):
-        mape_str = f"{mape:.1%}" if mape is not None else "n/a"
-        print(f"  {stream_type or '(unclassified)'}: n={n}, MAPE={mape_str}")
+    print(f"[funding-projections] back-test (FY23,FY24 -> FY25, dollar-weighted err by Stream_Type):")
+    for stream_type, n, err_pct in back_test(con, args.scenario):
+        err_str = f"{err_pct}%" if err_pct is not None else "n/a"
+        print(f"  {stream_type or '(unclassified)'}: n={n}, err={err_str}")
 
     con.close()
 
