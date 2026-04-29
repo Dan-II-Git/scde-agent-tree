@@ -179,6 +179,56 @@ def fetch_methodology(con, district_id, scenario):
     return counts
 
 
+def fetch_local_composition(con, district_id, top_n=5):
+    """
+    Top-N Local revenue codes for the latest historical FY where the district
+    has reported Local activity. Returns dict with the FY, total, and a list
+    of (code, title, amount, pct) tuples.
+    """
+    latest_fy = con.execute("""
+        SELECT MAX(r.FY)
+        FROM lea_revenues r
+        LEFT JOIN code_district_funding_streams c ON c.REV_Code = r.Revenue_Code
+        WHERE r.District_ID = ?
+          AND r.Reported_Flag = TRUE
+          AND r.Amount IS NOT NULL AND r.Amount != 0
+          AND c.Stream_Type = 'Local'
+    """, [district_id]).fetchone()[0]
+    if latest_fy is None:
+        return None
+
+    rows = con.execute("""
+        SELECT r.Revenue_Code, c.Display_Title, CAST(r.Amount AS BIGINT)
+        FROM lea_revenues r
+        LEFT JOIN code_district_funding_streams c ON c.REV_Code = r.Revenue_Code
+        WHERE r.District_ID = ? AND r.FY = ?
+          AND r.Reported_Flag = TRUE
+          AND r.Amount IS NOT NULL AND r.Amount != 0
+          AND c.Stream_Type = 'Local'
+        ORDER BY r.Amount DESC
+    """, [district_id, latest_fy]).fetchall()
+    if not rows:
+        return None
+
+    total = sum(r[2] for r in rows)
+    top = rows[:top_n]
+    other_total = sum(r[2] for r in rows[top_n:])
+
+    items = [
+        {"code": code, "title": title or code, "amount": amount,
+         "pct": (amount / total * 100) if total else 0}
+        for code, title, amount in top
+    ]
+    if other_total > 0:
+        items.append({
+            "code": "—", "title": f"Other ({len(rows) - top_n} codes)",
+            "amount": other_total,
+            "pct": (other_total / total * 100) if total else 0,
+        })
+
+    return {"fy": latest_fy, "total": total, "items": items}
+
+
 def fetch_charter_breakdown(con, district_id):
     """
     For the 3 charter authorizers, return per-mode (B&M vs Virtual) WPU and
@@ -258,7 +308,7 @@ def fmt_currency_color(n):
 
 def render_html(district_id, district_name, scenario,
                 history, projections, top_codes, methodology, partial_fy25,
-                charter_breakdown=None):
+                charter_breakdown=None, local_composition=None):
     """Return the full HTML document string."""
     fys_history = sorted({fy for fy, _, _ in history})
     fys_proj = sorted({fy for fy, _, _, _, _ in projections})
@@ -326,11 +376,54 @@ def render_html(district_id, district_name, scenario,
         colors_payload=json.dumps(COLORS),
         codes_table=_render_codes_table(top_codes, fys_history, fys_proj),
         charter_panel=_render_charter_panel(charter_breakdown),
+        local_composition=_render_local_composition(local_composition),
         methodology_summary=_render_methodology(methodology, is_partial_fy25, district_name),
         sunset_count=methodology.get("sunset_zero", 0),
         insufficient_count=methodology.get("insufficient_history", 0),
         trend_count=methodology.get("trend_ols", 0) + methodology.get("trend_ols_2fy", 0),
     )
+
+
+def _render_local_composition(comp):
+    """Render a small horizontal-bar composition of the top Local codes."""
+    if not comp or not comp["items"]:
+        return ""
+
+    bar_rows = []
+    for item in comp["items"]:
+        pct = item["pct"]
+        bar_rows.append(f"""
+        <tr>
+          <td class="mono small">{html.escape(item['code'])}</td>
+          <td>{html.escape(item['title'])}</td>
+          <td class="num">{fmt_currency(item['amount'])}</td>
+          <td class="num small">{pct:.0f}%</td>
+          <td class="bar-cell">
+            <div class="bar-track"><div class="bar-fill" style="width: {pct:.1f}%"></div></div>
+          </td>
+        </tr>
+        """)
+
+    return f"""
+    <section class="composition-card">
+      <h2>Local Revenue Composition — FY{comp['fy'] % 100}</h2>
+      <p class="composition-context">
+        Top {len(comp['items'])} contributors to this district's <strong>{fmt_currency(comp['total'])}</strong>
+        in Local revenue. Traditional districts are dominated by ad valorem (1110)
+        and other property-tax codes (1100s/1200s); charter authorizers, which lack
+        a property tax base, are dominated by donations (1920), pupil fees (1700s),
+        food sales (1600s), and investment income (1500s).
+      </p>
+      <table class="composition-table">
+        <thead>
+          <tr><th>Code</th><th>Title</th><th>Amount</th><th>Share</th><th></th></tr>
+        </thead>
+        <tbody>
+          {''.join(bar_rows)}
+        </tbody>
+      </table>
+    </section>
+    """
 
 
 def _render_charter_panel(breakdown):
@@ -683,6 +776,36 @@ _HTML_TEMPLATE = """<!doctype html>
     border-radius: 4px;
   }}
   .discount-note strong {{ font-weight: 700; }}
+  .composition-card {{
+    background: white;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 24px;
+  }}
+  .composition-card h2 {{ margin: 0 0 8px; font-size: 18px; }}
+  .composition-context {{ color: var(--neutral-fg); font-size: 13px; line-height: 1.5; margin: 0 0 16px; }}
+  table.composition-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+  table.composition-table th {{
+    text-align: left;
+    background: var(--brand-secondary);
+    color: white;
+    padding: 6px 10px;
+    font-weight: 500;
+  }}
+  table.composition-table td {{ padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }}
+  table.composition-table .bar-cell {{ width: 35%; }}
+  .bar-track {{
+    background: var(--neutral-bg);
+    border-radius: 3px;
+    height: 14px;
+    overflow: hidden;
+  }}
+  .bar-fill {{
+    background: linear-gradient(90deg, var(--brand-secondary), var(--brand-tertiary));
+    height: 100%;
+    border-radius: 3px;
+  }}
 </style>
 </head>
 <body>
@@ -722,6 +845,8 @@ _HTML_TEMPLATE = """<!doctype html>
   </section>
 
   {charter_panel}
+
+  {local_composition}
 
   <section class="codes-card">
     <h2>Top Revenue Codes — Historical &amp; Projected</h2>
@@ -893,6 +1018,7 @@ def main():
     top_codes = fetch_top_codes(con, district_id, args.scenario)
     methodology = fetch_methodology(con, district_id, args.scenario)
     charter_breakdown = fetch_charter_breakdown(con, district_id)
+    local_composition = fetch_local_composition(con, district_id)
 
     if not projections:
         sys.exit(f"No projections found for {district_name} ({district_id}) "
@@ -903,6 +1029,7 @@ def main():
         district_id, district_name, args.scenario,
         history, projections, top_codes, methodology, PARTIAL_FY25_DISTRICTS,
         charter_breakdown=charter_breakdown,
+        local_composition=local_composition,
     )
 
     timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
