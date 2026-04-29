@@ -89,11 +89,9 @@ function initMap() {
     scrollWheelZoom: true,
     attributionControl: false,
   });
-  // Soft basemap — Carto Positron (no API key required)
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png", {
-    subdomains: "abcd",
-    maxZoom: 19,
-  }).addTo(MAP);
+  // No basemap — district polygons are the entire visual; rendered on the
+  // neutral background defined in dashboard.css (#map). Removes street-level
+  // detail outside SC that distracted from the data.
 
   document.getElementById("map-fy").addEventListener("change", (e) => loadMap(parseInt(e.target.value, 10)));
   loadMap(parseInt(document.getElementById("map-fy").value, 10));
