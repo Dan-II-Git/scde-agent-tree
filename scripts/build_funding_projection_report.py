@@ -84,17 +84,20 @@ def resolve_district(con, ident):
 
 
 def fetch_history(con, district_id):
-    """Per-FY totals by stream + per-code rows for FY23-FY25."""
+    """Per-FY totals by stream + per-code rows for FY23-FY25.
+    Filters statewide-dormant codes per CLAUDE.md convention."""
     by_stream = con.execute("""
         SELECT r.FY, c.Stream_Type,
                CAST(SUM(r.Amount) AS BIGINT) AS total
         FROM lea_revenues r
         LEFT JOIN code_district_funding_streams c ON c.REV_Code = r.Revenue_Code
+        JOIN vw_revenue_code_status v ON v.REV_Code = r.Revenue_Code
         WHERE r.District_ID = ?
           AND r.Reported_Flag = TRUE
           AND r.Amount IS NOT NULL AND r.Amount != 0
           AND r.Revenue_Code NOT LIKE '5%'
           AND c.Stream_Type IS NOT NULL
+          AND v.Is_Statewide_Dormant = FALSE
         GROUP BY r.FY, c.Stream_Type
         ORDER BY r.FY, c.Stream_Type
     """, [district_id]).fetchall()
@@ -184,15 +187,19 @@ def fetch_local_composition(con, district_id, top_n=5):
     Top-N Local revenue codes for the latest historical FY where the district
     has reported Local activity. Returns dict with the FY, total, and a list
     of (code, title, amount, pct) tuples.
+
+    Filters statewide-dormant codes per CLAUDE.md convention.
     """
     latest_fy = con.execute("""
         SELECT MAX(r.FY)
         FROM lea_revenues r
         LEFT JOIN code_district_funding_streams c ON c.REV_Code = r.Revenue_Code
+        JOIN vw_revenue_code_status v ON v.REV_Code = r.Revenue_Code
         WHERE r.District_ID = ?
           AND r.Reported_Flag = TRUE
           AND r.Amount IS NOT NULL AND r.Amount != 0
           AND c.Stream_Type = 'Local'
+          AND v.Is_Statewide_Dormant = FALSE
     """, [district_id]).fetchone()[0]
     if latest_fy is None:
         return None
@@ -201,10 +208,12 @@ def fetch_local_composition(con, district_id, top_n=5):
         SELECT r.Revenue_Code, c.Display_Title, CAST(r.Amount AS BIGINT)
         FROM lea_revenues r
         LEFT JOIN code_district_funding_streams c ON c.REV_Code = r.Revenue_Code
+        JOIN vw_revenue_code_status v ON v.REV_Code = r.Revenue_Code
         WHERE r.District_ID = ? AND r.FY = ?
           AND r.Reported_Flag = TRUE
           AND r.Amount IS NOT NULL AND r.Amount != 0
           AND c.Stream_Type = 'Local'
+          AND v.Is_Statewide_Dormant = FALSE
         ORDER BY r.Amount DESC
     """, [district_id, latest_fy]).fetchall()
     if not rows:

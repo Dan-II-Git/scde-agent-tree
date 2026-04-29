@@ -43,11 +43,15 @@ def main():
     schema = json.loads(SCHEMA_JSON.read_text())
     con = duckdb.connect(str(DB_PATH))
 
-    # Get tables that actually exist in the DB so we don't fail on
-    # tables that are documented but not yet created.
-    existing = {row[0] for row in con.execute(
+    # Get tables and views that actually exist in the DB so we don't fail on
+    # objects that are documented but not yet created.
+    existing_tables = {row[0] for row in con.execute(
         "SELECT table_name FROM duckdb_tables() WHERE schema_name='main'"
     ).fetchall()}
+    existing_views = {row[0] for row in con.execute(
+        "SELECT view_name FROM duckdb_views() WHERE schema_name='main'"
+    ).fetchall()}
+    existing = existing_tables | existing_views
 
     applied = 0
     skipped_tables = []
@@ -59,6 +63,7 @@ def main():
             continue
 
         # Apply table-level comment using purpose
+        # DuckDB uses COMMENT ON TABLE for both tables and views
         purpose = table_meta.get("purpose", "").strip()
         if purpose:
             con.execute(
@@ -66,7 +71,7 @@ def main():
             )
             applied += 1
 
-        # Get columns that actually exist on this table
+        # Get columns that actually exist on this table/view
         existing_cols = {row[0] for row in con.execute(
             "SELECT column_name FROM duckdb_columns() "
             "WHERE table_name = ? AND schema_name='main'",

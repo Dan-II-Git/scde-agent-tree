@@ -132,6 +132,33 @@ after either changes.
    `'insufficient_history'` (fewer than 3 data points). Rebuilt by the
    agent's pipeline SQL; do not manually INSERT.
 
+### Views  — owned by respective layer agents, defined in `init.sql`
+
+- `vw_sceis_fi_payments_classified` — `sceis_fi_payments` left-joined to
+  `lookup_sceis_program_classification`; exposes `Funding_Stream` and
+  `Program_Tag`. Use this view (not the raw table) for any State/Federal
+  split or per-program analysis.
+
+- `vw_revenue_code_status` — global statewide-dormancy mask for Revenue codes.
+  Owned by `code-catalog`; computed from `code_district_funding_streams`
+  joined to `lea_revenues`. 201 rows — one per `REV_Code`.
+
+  **Dormancy rule.** A code is `Is_Statewide_Dormant = TRUE` when ALL three
+  conditions hold:
+  1. `Rollup_Level >= 3` (it is a leaf-level code, not a parent/rollup row)
+  2. `Sunset_Note IS NULL` (the code is not already flagged as intentionally closed)
+  3. Statewide sum across the last 3 reported FYs (`Reported_Flag = TRUE`) equals $0
+
+  **Consumer rule.** Any report or mart that surfaces individual
+  `Revenue_Code` values must join this view and filter on
+  `Is_Statewide_Dormant = FALSE`, unless the query is explicitly auditing the
+  catalog for dormant or sunset codes. This prevents clutter from ~39
+  statewide-zero codes entering dashboards.
+
+  Key columns: `REV_Code`, `Stream_Type`, `Rollup_Level`, `Display_Title`,
+  `Sunset_Note`, `Last_Active_FY`, `Is_Rollup`, `Has_Sunset`,
+  `Is_Statewide_Dormant`.
+
 ## Schema changes
 
 Any agent proposing a schema change must:

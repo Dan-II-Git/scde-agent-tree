@@ -113,6 +113,13 @@ SCEIS (local taxes/fees, district-side operational detail). See the
   a way to expand to the full definition. Use Tippy.js, not native
   `title` attributes. Source: `code_accounting_codes.Short_Description`
   and `Full_Description`.
+- **Statewide dormancy mask.** Any report or mart that surfaces individual
+  `Revenue_Code` values must join `vw_revenue_code_status` and filter on
+  `Is_Statewide_Dormant = FALSE` unless explicitly auditing the catalog.
+  The rule: leaf-level codes (`Rollup_Level >= 3`) that are statewide $0 in
+  each of the last 3 FYs with no sunset note. The view auto-refreshes from
+  `lea_revenues` on every query; no rebuild step is required after new FY
+  data loads.
 - **Data dictionary.** Schema descriptions live in two places:
   `db/schema.json` (source of truth) and DuckDB column comments
   (queryable via `duckdb_columns()`). Any agent rendering a column

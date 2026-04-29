@@ -350,3 +350,75 @@ ON CONFLICT (Rule_Order) DO UPDATE SET
     Program_Tag    = excluded.Program_Tag,
     Description    = excluded.Description,
     Source         = excluded.Source;
+
+-- ============================================================
+-- Views
+-- ============================================================
+
+-- vw_sceis_fi_payments_classified: sceis_fi_payments joined to
+-- lookup_sceis_program_classification; exposes Funding_Stream and
+-- Program_Tag.  Use this view (not the raw table) for any
+-- State/Federal split or per-program analysis.
+CREATE OR REPLACE VIEW vw_sceis_fi_payments_classified AS
+SELECT
+    f.*,
+    COALESCE(c.Funding_Stream, 'Other')     AS Funding_Stream,
+    COALESCE(c.Program_Tag,    'unmatched') AS Program_Tag,
+    c.Rule_Order                            AS Classification_Rule_Order
+FROM sceis_fi_payments AS f
+LEFT JOIN (
+    SELECT Rule_Order, Funding_Stream, Program_Tag
+    FROM   lookup_sceis_program_classification
+    WHERE  regexp_matches(
+               upper(regexp_replace(COALESCE(f.Reference, ''), '^\d{4}[\s\-_]*', '')),
+               Pattern
+           )
+    ORDER BY Rule_Order
+    LIMIT 1
+) AS c ON TRUE;
+
+-- vw_revenue_code_status: global statewide-dormancy mask for Revenue
+-- codes.  Owned by code-catalog (computed from code_district_funding_streams
+-- + lea_revenues).  Consumers must filter on Is_Statewide_Dormant = FALSE
+-- unless explicitly auditing the catalog.
+--
+-- Dormancy rule: leaf-level code (Rollup_Level >= 3) with statewide $0
+-- in each of the last 3 reported FYs (Reported_Flag=TRUE) and no Sunset_Note.
+-- The view auto-refreshes from lea_revenues on every query.
+CREATE OR REPLACE VIEW vw_revenue_code_status AS
+WITH max_fy AS (
+    SELECT MAX(FY) AS max_fy FROM lea_revenues WHERE Reported_Flag = TRUE
+),
+yearly_totals AS (
+    SELECT Revenue_Code, FY, SUM(COALESCE(Amount, 0)) AS total
+    FROM   lea_revenues
+    WHERE  Reported_Flag = TRUE
+    GROUP BY 1, 2
+),
+last_active AS (
+    SELECT Revenue_Code, MAX(FY) FILTER (WHERE total != 0) AS last_active_fy
+    FROM   yearly_totals
+    GROUP BY 1
+),
+recent_window AS (
+    SELECT
+        yt.Revenue_Code,
+        SUM(yt.total) FILTER (WHERE yt.FY >= (SELECT max_fy FROM max_fy) - 2) AS recent_3fy_total
+    FROM yearly_totals yt
+    GROUP BY 1
+)
+SELECT
+    c.REV_Code,
+    c.Stream_Type,
+    c.Rollup_Level,
+    c.Display_Title,
+    c.Sunset_Note,
+    la.last_active_fy                                           AS Last_Active_FY,
+    (c.Rollup_Level <= 2)                                       AS Is_Rollup,
+    (c.Sunset_Note IS NOT NULL)                                 AS Has_Sunset,
+    (c.Rollup_Level >= 3
+     AND c.Sunset_Note IS NULL
+     AND COALESCE(rw.recent_3fy_total, 0) = 0)                 AS Is_Statewide_Dormant
+FROM  code_district_funding_streams  c
+LEFT JOIN last_active  la ON la.Revenue_Code = c.REV_Code
+LEFT JOIN recent_window rw ON rw.Revenue_Code = c.REV_Code;

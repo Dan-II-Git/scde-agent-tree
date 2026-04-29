@@ -135,6 +135,23 @@
         "Classification_Rule_Order": "Rule_Order of the rule that matched. NULL = no rule matched."
       }
     },
+    "vw_revenue_code_status": {
+      "purpose": "View — global statewide-dormancy mask for Revenue codes. Owned by code-catalog; computed from code_district_funding_streams joined to lea_revenues. Consumers must filter on Is_Statewide_Dormant = FALSE unless explicitly auditing the catalog. Auto-refreshes from lea_revenues on every query.",
+      "stability": "derived",
+      "owner_agent": "code-catalog",
+      "source": "View defined in init.sql. Dormancy rule: leaf-level code (Rollup_Level >= 3) with statewide $0 across each of the last 3 reported FYs (Reported_Flag=TRUE) and no Sunset_Note.",
+      "columns": {
+        "REV_Code": "Revenue code primary key; joins to code_district_funding_streams.REV_Code and lea_revenues.Revenue_Code.",
+        "Stream_Type": "'Local' / 'State' / 'Federal' — inherited from code_district_funding_streams.",
+        "Rollup_Level": "Hierarchy depth 1-4 from code_district_funding_streams; codes at level >= 3 are leaf-level and subject to dormancy evaluation.",
+        "Display_Title": "Short display title inherited from code_district_funding_streams; use for report labels.",
+        "Sunset_Note": "Free-text sunset note from code_district_funding_streams; non-NULL means the stream is intentionally closed, not dormant.",
+        "Last_Active_FY": "Most recent fiscal year in which this code had any nonzero statewide reported amount; NULL if the code has never had activity in lea_revenues.",
+        "Is_Rollup": "TRUE when Rollup_Level <= 2 (parent/category row); rollup rows are never dormant regardless of dollar totals.",
+        "Has_Sunset": "TRUE when Sunset_Note is non-NULL; sunset codes are excluded from dormancy classification (they are intentionally closed, not statewide-zero by accident).",
+        "Is_Statewide_Dormant": "TRUE when Rollup_Level >= 3 AND Sunset_Note IS NULL AND statewide sum across the last 3 reported FYs equals $0. Filter on FALSE to exclude dormant codes from reports and marts."
+      }
+    },
     "sceis_agency_master": {
       "purpose": "Canonical dimension for H630 (SCDE) organizational structure. Joins to detail transactions on four equivalent keys: Cost_Center, Functional_Area, AGY_Funded_Program, State_Funded_Program.",
       "stability": "stable",

@@ -134,20 +134,28 @@ def load_inputs(con):
       history: list of (district_id, revenue_code, fy, amount)
       stream_meta: dict[code] = (stream_type, allocation_basis, sunset_fy_or_none)
       policy: dict[(fy, parameter)] = value
+
+    Statewide-dormant codes are filtered out via vw_revenue_code_status per
+    the CLAUDE.md convention. Sunset and rollup codes pass through (the
+    pipeline handles them with their own branches).
     """
     history = con.execute(f"""
-        SELECT District_ID, Revenue_Code, FY, CAST(Amount AS DOUBLE) AS Amount
-        FROM lea_revenues
-        WHERE Reported_Flag = TRUE
-          AND Amount IS NOT NULL
-          AND Amount != 0
-          AND FY BETWEEN {HISTORY_MIN_FY} AND {HISTORY_MAX_FY}
+        SELECT r.District_ID, r.Revenue_Code, r.FY, CAST(r.Amount AS DOUBLE) AS Amount
+        FROM lea_revenues r
+        JOIN vw_revenue_code_status v ON v.REV_Code = r.Revenue_Code
+        WHERE r.Reported_Flag = TRUE
+          AND r.Amount IS NOT NULL
+          AND r.Amount != 0
+          AND r.FY BETWEEN {HISTORY_MIN_FY} AND {HISTORY_MAX_FY}
+          AND v.Is_Statewide_Dormant = FALSE
     """).fetchall()
 
     stream_meta = {}
     for code, stream_type, alloc_basis, sunset_note in con.execute("""
-        SELECT REV_Code, Stream_Type, Allocation_Basis, Sunset_Note
-        FROM code_district_funding_streams
+        SELECT c.REV_Code, c.Stream_Type, c.Allocation_Basis, c.Sunset_Note
+        FROM code_district_funding_streams c
+        JOIN vw_revenue_code_status v ON v.REV_Code = c.REV_Code
+        WHERE v.Is_Statewide_Dormant = FALSE
     """).fetchall():
         sunset_fy = parse_sunset_fy(sunset_note)
         stream_meta[str(code)] = {
