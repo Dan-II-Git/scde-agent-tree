@@ -41,7 +41,13 @@
       "Bash(curl -fso compare_chart.html \"http://127.0.0.1:8765/api/report/compare?fy=2024&mode=chart\")",
       "Bash(curl -fs \"http://127.0.0.1:8765/api/report/detail?district=2301&fy=2024\")",
       "Bash(curl -fs \"http://127.0.0.1:8765/api/report/detail?district=2301&fy=2024\" -o /tmp/d.html)",
-      "Bash(curl -fs \"http://127.0.0.1:8765/api/report/detail?district=2301&fy=2024\" -o d.html)"
+      "Bash(curl -fs \"http://127.0.0.1:8765/api/report/detail?district=2301&fy=2024\" -o d.html)",
+      "Bash(git commit -m ' *)",
+      "Bash(grep -n \"INSERT INTO\\\\|^-- =\\\\+$\" db/init.sql)",
+      "Bash(curl -fs \"http://127.0.0.1:8765/api/report/compare?fy=2024&mode=chart\" -o cc.html)",
+      "Bash(grep -oE '\\\\$[0-9.]+[BMK]' cc.html)",
+      "Bash(curl -fs \"http://127.0.0.1:8765/api/ytd/chart?district=2301&fy=2026\" -o ytd.html)",
+      "Bash(curl -fs \"http://127.0.0.1:8765/api/report/multi-fy?district=2301\" -o mf.html)"
     ]
   }
 }

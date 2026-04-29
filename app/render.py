@@ -31,6 +31,51 @@ def fmt_int(v: int | None) -> str:
     return f"{v:,}" if v is not None else "n/a"
 
 
+def fmt_money_si(v: float | int | None) -> str:
+    """SI-suffix currency for chart axis ticks. Negatives in accounting parens."""
+    if v is None:
+        return "n/a"
+    n = float(v)
+    if n == 0:
+        return "$0"
+    a = abs(n)
+    if a >= 1e9:
+        s = f"{a/1e9:.1f}B"
+    elif a >= 1e6:
+        s = f"{a/1e6:.1f}M"
+    elif a >= 1e3:
+        s = f"{a/1e3:.0f}K"
+    else:
+        s = f"{a:.0f}"
+    return f"$({s})" if n < 0 else f"${s}"
+
+
+def fmt_fy(fy: int) -> str:
+    """Two-year format per style-guide §5.6 (e.g. FY2024 -> 'FY23-24')."""
+    return f"FY{(fy-1)%100:02d}-{fy%100:02d}"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Categorical chart palette — Okabe-Ito (style-guide §1.3 / tokens.json)
+# Index 0 swapped to SCDE dark blue, index 7 swapped from yellow to gray.
+# Gold (#F1BA55, brand.accent) is decorative-only and NEVER appears here.
+# ──────────────────────────────────────────────────────────────────────
+
+CATEGORICAL_PALETTE = [
+    "#234058",  # 0 SCDE dark blue
+    "#E69F00",  # 1 Okabe-Ito orange
+    "#56B4E9",  # 2 Okabe-Ito sky
+    "#009E73",  # 3 Okabe-Ito green
+    "#CC79A7",  # 4 Okabe-Ito reddish-purple
+    "#0072B2",  # 5 Okabe-Ito blue
+    "#D55E00",  # 6 Okabe-Ito vermillion
+    "#666666",  # 7 Neutral dark gray (replaces failing-AA yellow)
+]
+GRIDLINE_COLOR = "#CBD5E0"  # border_subtle
+GRIDLINE_OPACITY = "0.5"
+DANGER_FG = "#B3261E"  # semantic.danger
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Shared CSS — SCDE tokens
 # ──────────────────────────────────────────────────────────────────────
@@ -203,7 +248,7 @@ def render_detail(data: dict[str, Any]) -> str:
 
     return f"""
     <div class="scde-report">
-      <h1>{html.escape(d['name'])} — Detail Revenue, FY{fy}</h1>
+      <h1>{html.escape(d['name'])} — Detail Revenue, {fmt_fy(fy)}</h1>
       <div class="meta">District {html.escape(d['id'])} · generated {date.today().isoformat()}</div>
       {body}
       {footer}
@@ -262,7 +307,7 @@ def render_compare_table(data: dict[str, Any]) -> str:
 
     return f"""
     <div class="scde-report">
-      <h1>District Revenue Comparison — FY{fy}</h1>
+      <h1>District Revenue Comparison — {fmt_fy(fy)}</h1>
       <div class="meta">All districts · generated {date.today().isoformat()}</div>
       <table>
         <thead>{head}</thead>
@@ -283,11 +328,9 @@ def render_compare_chart(data: dict[str, Any]) -> str:
     plot_rows.sort(key=lambda r: r["per_pupil_total"] or 0, reverse=True)
 
     if not plot_rows:
-        return f'<div class="scde-report"><h1>FY{fy} Comparison Chart</h1><p>No data.</p></div>'
+        return f'<div class="scde-report"><h1>{fmt_fy(fy)} Comparison Chart</h1><p>No data.</p></div>'
 
-    # Categorical colors from SCDE tokens
-    palette = ["#234058", "#56B4E9", "#009E73", "#666666", "#F1BA55", "#CC79A7"]
-    color_for = {b: palette[i % len(palette)] for i, b in enumerate(buckets)}
+    color_for = {b: CATEGORICAL_PALETTE[i % len(CATEGORICAL_PALETTE)] for i, b in enumerate(buckets)}
 
     max_pp = max((r["per_pupil_total"] or 0) for r in plot_rows)
     bar_h = 14
@@ -312,9 +355,11 @@ def render_compare_chart(data: dict[str, Any]) -> str:
                     f'<rect x="{x0:.1f}" y="{y}" width="{seg_w:.1f}" height="{bar_h}" fill="{color_for[b]}"><title>{html.escape(b)}: {fmt_money(v_pp)}/pupil</title></rect>'
                 )
                 x0 += seg_w
-        # Total label at end of bar
+        # Total label at end of bar — SI-suffixed, danger color if negative
+        v = r["per_pupil_total"] or 0
+        lbl_fill = DANGER_FG if v < 0 else "#2F3D4C"
         bars_svg.append(
-            f'<text x="{x0+4:.1f}" y="{y+bar_h-3}" font-size="10" font-family="JetBrains Mono,monospace" fill="#2F3D4C">{html.escape(fmt_money(r["per_pupil_total"]))}</text>'
+            f'<text x="{x0+4:.1f}" y="{y+bar_h-3}" font-size="10" font-family="JetBrains Mono,monospace" fill="{lbl_fill}">{html.escape(fmt_money_si(v))}</text>'
         )
 
     # Legend
@@ -337,12 +382,15 @@ def render_compare_chart(data: dict[str, Any]) -> str:
 
     return f"""
     <div class="scde-report">
-      <h1>FY{fy} District Revenue Comparison</h1>
+      <h1>{fmt_fy(fy)} District Revenue Comparison</h1>
       <div class="meta">Per-pupil, all reporting districts · generated {date.today().isoformat()}</div>
-      <svg viewBox="0 0 {w} {h}" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:1100px">
-        {''.join(bars_svg)}
-        {''.join(legend)}
-      </svg>
+      <figure>
+        <svg viewBox="0 0 {w} {h}" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:1100px" role="img" aria-labelledby="cmpcap">
+          {''.join(bars_svg)}
+          {''.join(legend)}
+        </svg>
+        <figcaption id="cmpcap" style="font-size:12px;color:#43718B;margin-top:4px">Stacked horizontal bars; revenue per pupil; sorted desc.</figcaption>
+      </figure>
       {footer}
     </div>
     """
@@ -366,7 +414,7 @@ def render_multi_fy(data: dict[str, Any]) -> str:
     body_rows = []
     for r in rows:
         cells = [
-            f'<td>FY{r["fy"]}</td>',
+            f'<td>{fmt_fy(r["fy"])}</td>',
             f'<td class="num">{fmt_int(r["headcount"])}</td>',
         ]
         for b in buckets:
@@ -405,9 +453,8 @@ def render_multi_fy(data: dict[str, Any]) -> str:
 def _multi_fy_chart_svg(rows: list[dict], buckets: list[str]) -> str:
     if not rows:
         return "<p>No data.</p>"
-    palette = ["#234058", "#56B4E9", "#009E73", "#666666", "#F1BA55", "#CC79A7"]
     w, h = 720, 280
-    pad_l, pad_r, pad_t, pad_b = 60, 16, 20, 36
+    pad_l, pad_r, pad_t, pad_b = 70, 16, 20, 40
 
     fys = [r["fy"] for r in rows]
     if not fys:
@@ -421,23 +468,28 @@ def _multi_fy_chart_svg(rows: list[dict], buckets: list[str]) -> str:
     def x_for(i): return pad_l + i * x_step if len(fys) > 1 else (w - pad_l - pad_r) / 2 + pad_l
     def y_for(v): return h - pad_b - (v or 0) * y_scale
 
-    grid = [f'<line x1="{pad_l}" y1="{h-pad_b}" x2="{w-pad_r}" y2="{h-pad_b}" stroke="#CBD5E0"/>']
+    tilt = len(fys) > 6
+    grid = [f'<line x1="{pad_l}" y1="{h-pad_b}" x2="{w-pad_r}" y2="{h-pad_b}" stroke="{GRIDLINE_COLOR}" stroke-opacity="{GRIDLINE_OPACITY}"/>']
     for i, fy in enumerate(fys):
         x = x_for(i)
-        grid.append(f'<text x="{x}" y="{h-pad_b+14}" font-size="11" text-anchor="middle" fill="#43718B">FY{fy}</text>')
-    # Y-axis ticks (4)
+        label = fmt_fy(fy)
+        if tilt:
+            grid.append(f'<text x="{x}" y="{h-pad_b+14}" font-size="11" text-anchor="end" fill="#43718B" transform="rotate(-45 {x} {h-pad_b+14})">{label}</text>')
+        else:
+            grid.append(f'<text x="{x}" y="{h-pad_b+14}" font-size="11" text-anchor="middle" fill="#43718B">{label}</text>')
+    # Y-axis ticks (4) with SI-suffix labels
     for k in range(5):
         v = max_pp * k / 4
         y = y_for(v)
         grid.append(
-            f'<line x1="{pad_l}" y1="{y}" x2="{w-pad_r}" y2="{y}" stroke="#CBD5E0" stroke-dasharray="2 4"/>'
-            f'<text x="{pad_l-6}" y="{y+3}" text-anchor="end" font-size="10" font-family="JetBrains Mono,monospace" fill="#43718B">{html.escape(fmt_money(v))}</text>'
+            f'<line x1="{pad_l}" y1="{y}" x2="{w-pad_r}" y2="{y}" stroke="{GRIDLINE_COLOR}" stroke-opacity="{GRIDLINE_OPACITY}" stroke-dasharray="2 4"/>'
+            f'<text x="{pad_l-6}" y="{y+3}" text-anchor="end" font-size="10" font-family="JetBrains Mono,monospace" fill="#43718B">{html.escape(fmt_money_si(v))}</text>'
         )
 
     lines = []
     legend_items = []
     for bi, b in enumerate(buckets):
-        col = palette[bi % len(palette)]
+        col = CATEGORICAL_PALETTE[bi % len(CATEGORICAL_PALETTE)]
         pts = []
         for i, r in enumerate(rows):
             v = (r["per_pupil"] or {}).get(b, 0) or 0
@@ -454,7 +506,7 @@ def _multi_fy_chart_svg(rows: list[dict], buckets: list[str]) -> str:
             f'</g>'
         )
 
-    return f'<svg viewBox="0 0 {w} {h+40}" width="100%" style="max-width:900px">{"".join(grid)}{"".join(lines)}<g transform="translate(0,{h+8})">{"".join(legend_items)}</g></svg>'
+    return f'<svg viewBox="0 0 {w} {h+40}" width="100%" style="max-width:900px" role="img" aria-label="Multi-year per-pupil revenue trend by bucket">{"".join(grid)}{"".join(lines)}<g transform="translate(0,{h+8})">{"".join(legend_items)}</g></svg>'
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -468,16 +520,20 @@ def render_ytd_chart(data: dict[str, Any]) -> str:
     rows = data["rows"]
 
     if not rows:
-        return f'<div class="scde-report"><h1>{html.escape(d["name"])} — FY{fy} YTD</h1><p>No SCEIS data for this district + FY.</p></div>'
+        return f'<div class="scde-report"><h1>{html.escape(d["name"])} — {fmt_fy(fy)} YTD</h1><p>No SCEIS data for this district + FY.</p></div>'
 
-    palette = {"State": "#234058", "Federal": "#CC79A7", "Other": "#666666"}
+    # Stream → palette index. State=0 (SCDE blue, primary), Federal=1 (orange,
+    # high-contrast against blue), Other=7 (neutral gray).
+    stream_idx = {"State": 0, "Federal": 1, "Other": 7}
     streams = sorted({s for r in rows for s in r["streams"]})
+    palette = {s: CATEGORICAL_PALETTE[stream_idx.get(s, 4)] for s in streams}
 
     w, h = 760, 320
-    pad_l, pad_r, pad_t, pad_b = 70, 16, 20, 60
+    pad_l, pad_r, pad_t, pad_b = 70, 16, 20, 64
     n = len(rows)
     bar_w = (w - pad_l - pad_r) / n * 0.7
     step = (w - pad_l - pad_r) / n
+    tilt = n > 6
 
     max_total = max((r["total"] for r in rows), default=1) or 1
     y_scale = (h - pad_t - pad_b) / max_total
@@ -496,22 +552,32 @@ def render_ytd_chart(data: dict[str, Any]) -> str:
                 f'<title>{html.escape(s)} {r["year"]}-{r["month"]:02d}: {fmt_money(v)}</title></rect>'
             )
             y_cursor -= seg_h
-        # Month label
+        # Month label — tilt 45° when >6 ticks per style-guide §5.6
+        cx = x + bar_w / 2
+        m_lbl = f'{r["year"]}-{r["month"]:02d}'
+        if tilt:
+            bars.append(
+                f'<text x="{cx:.1f}" y="{h-pad_b+14}" font-size="10" text-anchor="end" fill="#43718B" transform="rotate(-45 {cx:.1f} {h-pad_b+14})">{m_lbl}</text>'
+            )
+        else:
+            bars.append(
+                f'<text x="{cx:.1f}" y="{h-pad_b+14}" font-size="10" text-anchor="middle" fill="#43718B">{m_lbl}</text>'
+            )
+        # Total above bar — SI-suffix; danger color if negative
+        v_total = r["total"] or 0
+        lbl_fill = DANGER_FG if v_total < 0 else "#2F3D4C"
         bars.append(
-            f'<text x="{x+bar_w/2:.1f}" y="{h-pad_b+14}" font-size="10" text-anchor="middle" fill="#43718B">{r["year"]}-{r["month"]:02d}</text>'
-        )
-        bars.append(
-            f'<text x="{x+bar_w/2:.1f}" y="{(y_for(r["total"])-3):.1f}" font-size="9" text-anchor="middle" font-family="JetBrains Mono,monospace" fill="#2F3D4C">{html.escape(fmt_money(r["total"]))}</text>'
+            f'<text x="{cx:.1f}" y="{(y_for(v_total)-3):.1f}" font-size="9" text-anchor="middle" font-family="JetBrains Mono,monospace" fill="{lbl_fill}">{html.escape(fmt_money_si(v_total))}</text>'
         )
 
-    # Y-axis ticks
+    # Y-axis ticks — SI-suffixed
     grid = []
     for k in range(5):
         v = max_total * k / 4
         y = y_for(v)
         grid.append(
-            f'<line x1="{pad_l}" y1="{y}" x2="{w-pad_r}" y2="{y}" stroke="#CBD5E0" stroke-dasharray="2 4"/>'
-            f'<text x="{pad_l-6}" y="{y+3}" text-anchor="end" font-size="10" font-family="JetBrains Mono,monospace" fill="#43718B">{html.escape(fmt_money(v))}</text>'
+            f'<line x1="{pad_l}" y1="{y}" x2="{w-pad_r}" y2="{y}" stroke="{GRIDLINE_COLOR}" stroke-opacity="{GRIDLINE_OPACITY}" stroke-dasharray="2 4"/>'
+            f'<text x="{pad_l-6}" y="{y+3}" text-anchor="end" font-size="10" font-family="JetBrains Mono,monospace" fill="#43718B">{html.escape(fmt_money_si(v))}</text>'
         )
 
     legend = "".join(
@@ -536,13 +602,16 @@ def render_ytd_chart(data: dict[str, Any]) -> str:
 
     return f"""
     <div class="scde-report">
-      <h1>{html.escape(d['name'])} — FY{fy} Year-to-Date by Month</h1>
+      <h1>{html.escape(d['name'])} — {fmt_fy(fy)} Year-to-Date by Month</h1>
       <div class="meta">District {html.escape(d['id'])} · {fmt_int(txn_count)} SCEIS transactions · grand total {html.escape(fmt_money(grand))}</div>
-      <svg viewBox="0 0 {w} {h+40}" width="100%" style="max-width:1000px">
-        {''.join(grid)}
-        {''.join(bars)}
-        <g transform="translate(0,{h+10})">{legend}</g>
-      </svg>
+      <figure>
+        <svg viewBox="0 0 {w} {h+40}" width="100%" style="max-width:1000px" role="img" aria-labelledby="ytdcap">
+          {''.join(grid)}
+          {''.join(bars)}
+          <g transform="translate(0,{h+10})">{legend}</g>
+        </svg>
+        <figcaption id="ytdcap" style="font-size:12px;color:#43718B;margin-top:4px">Stacked monthly SCEIS payments by funding stream.</figcaption>
+      </figure>
       {footer}
     </div>
     """
@@ -554,7 +623,7 @@ def render_ytd_detail(data: dict[str, Any]) -> str:
     rows = data["rows"]
 
     if not rows:
-        return f'<div class="scde-report"><h1>{html.escape(d["name"])} — FY{fy} YTD Detail</h1><p>No SCEIS data.</p></div>'
+        return f'<div class="scde-report"><h1>{html.escape(d["name"])} — {fmt_fy(fy)} YTD Detail</h1><p>No SCEIS data.</p></div>'
 
     streams = sorted({s for r in rows for s in r["streams"]})
     head = (
@@ -598,7 +667,7 @@ def render_ytd_detail(data: dict[str, Any]) -> str:
 
     return f"""
     <div class="scde-report">
-      <h1>{html.escape(d['name'])} — FY{fy} YTD Monthly Detail</h1>
+      <h1>{html.escape(d['name'])} — {fmt_fy(fy)} YTD Monthly Detail</h1>
       <div class="meta">District {html.escape(d['id'])} · generated {date.today().isoformat()}</div>
       <table>
         <thead>{head}</thead>
