@@ -76,6 +76,25 @@ GRIDLINE_OPACITY = "0.5"
 DANGER_FG = "#B3261E"  # semantic.danger
 
 
+def _legend_html(items: list[tuple[str, str]]) -> str:
+    """HTML legend below an SVG chart — uses inline styles so it renders
+    correctly even if the report's class-based CSS is absent. items =
+    [(color_hex, label), ...]."""
+    chips = "".join(
+        f'<span style="display:inline-flex;align-items:center;gap:6px;font:11px/1 Poppins,system-ui,sans-serif;color:#2F3D4C">'
+        f'<span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:{c};border:1px solid rgba(47,61,76,0.15);flex-shrink:0"></span>'
+        f'{html.escape(l)}</span>'
+        for c, l in items
+    )
+    return f'<div style="display:flex;flex-wrap:wrap;gap:12px 18px;padding:8px 4px 0">{chips}</div>'
+
+
+def _wrap(body: str) -> str:
+    """Wrap a rendered report body with the inline <style> block so reports
+    are self-contained and don't depend on the dashboard's CSS."""
+    return f"<style>{REPORT_CSS}</style>{body}"
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Shared CSS — SCDE tokens
 # ──────────────────────────────────────────────────────────────────────
@@ -129,6 +148,10 @@ REPORT_CSS = """
 .scde-report .kpi { background: var(--neutral-bg); padding: 12px 16px; border-radius: 8px; min-width: 140px; }
 .scde-report .kpi-label { font-size: 11px; text-transform: uppercase; color: var(--brand-tertiary); letter-spacing: 0.04em; }
 .scde-report .kpi-value { font-size: 22px; font-family: var(--font-mono); font-weight: 600; color: var(--brand-primary); margin-top: 2px; }
+.scde-report figure { margin: 0; }
+.scde-report .chart-legend { display: flex; flex-wrap: wrap; gap: 12px 18px; padding: 8px 4px 0; font-size: 11px; color: var(--neutral-fg); }
+.scde-report .chart-legend .legend-item { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-display); }
+.scde-report .chart-legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; border: 1px solid rgba(47,61,76,0.15); flex-shrink: 0; }
 """
 
 
@@ -246,14 +269,14 @@ def render_detail(data: dict[str, Any]) -> str:
         ],
     )
 
-    return f"""
+    return _wrap(f"""
     <div class="scde-report">
       <h1>{html.escape(d['name'])} — Detail Revenue, {fmt_fy(fy)}</h1>
       <div class="meta">District {html.escape(d['id'])} · generated {date.today().isoformat()}</div>
       {body}
       {footer}
     </div>
-    """
+    """)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -305,7 +328,7 @@ def render_compare_table(data: dict[str, Any]) -> str:
         ],
     )
 
-    return f"""
+    return _wrap(f"""
     <div class="scde-report">
       <h1>District Revenue Comparison — {fmt_fy(fy)}</h1>
       <div class="meta">All districts · generated {date.today().isoformat()}</div>
@@ -315,7 +338,7 @@ def render_compare_table(data: dict[str, Any]) -> str:
       </table>
       {footer}
     </div>
-    """
+    """)
 
 
 def render_compare_chart(data: dict[str, Any]) -> str:
@@ -328,7 +351,7 @@ def render_compare_chart(data: dict[str, Any]) -> str:
     plot_rows.sort(key=lambda r: r["per_pupil_total"] or 0, reverse=True)
 
     if not plot_rows:
-        return f'<div class="scde-report"><h1>{fmt_fy(fy)} Comparison Chart</h1><p>No data.</p></div>'
+        return _wrap(f'<div class="scde-report"><h1>{fmt_fy(fy)} Comparison Chart</h1><p>No data.</p></div>')
 
     color_for = {b: CATEGORICAL_PALETTE[i % len(CATEGORICAL_PALETTE)] for i, b in enumerate(buckets)}
 
@@ -337,12 +360,14 @@ def render_compare_chart(data: dict[str, Any]) -> str:
     gap = 4
     label_w = 240
     chart_w = 700
-    h = (bar_h + gap) * len(plot_rows) + 60
+    top_pad = 20
+    bot_pad = 20
+    h = top_pad + (bar_h + gap) * len(plot_rows) + bot_pad
     w = label_w + chart_w + 80
 
     bars_svg = []
     for i, r in enumerate(plot_rows):
-        y = 40 + i * (bar_h + gap)
+        y = top_pad + i * (bar_h + gap)
         x0 = label_w
         bars_svg.append(
             f'<text x="{label_w-8}" y="{y+bar_h-3}" text-anchor="end" font-size="11" fill="#2F3D4C">{html.escape(r["district_name"][:30])}</text>'
@@ -362,14 +387,7 @@ def render_compare_chart(data: dict[str, Any]) -> str:
             f'<text x="{x0+4:.1f}" y="{y+bar_h-3}" font-size="10" font-family="JetBrains Mono,monospace" fill="{lbl_fill}">{html.escape(fmt_money_si(v))}</text>'
         )
 
-    # Legend
-    legend = []
-    for i, b in enumerate(buckets):
-        lx = 8 + i * 180
-        legend.append(
-            f'<rect x="{lx}" y="{h-30}" width="12" height="12" fill="{color_for[b]}"/>'
-            f'<text x="{lx+18}" y="{h-20}" font-size="11" fill="#2F3D4C">{html.escape(b)}</text>'
-        )
+    legend_html = _legend_html([(color_for[b], b) for b in buckets])
 
     footer = _methodology_footer(
         single_district=False,
@@ -380,20 +398,20 @@ def render_compare_chart(data: dict[str, Any]) -> str:
         ],
     )
 
-    return f"""
+    return _wrap(f"""
     <div class="scde-report">
       <h1>{fmt_fy(fy)} District Revenue Comparison</h1>
       <div class="meta">Per-pupil, all reporting districts · generated {date.today().isoformat()}</div>
       <figure>
-        <svg viewBox="0 0 {w} {h}" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:1100px" role="img" aria-labelledby="cmpcap">
+        <svg viewBox="0 0 {w} {h}" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:1100px;display:block" role="img" aria-labelledby="cmpcap">
           {''.join(bars_svg)}
-          {''.join(legend)}
         </svg>
+        {legend_html}
         <figcaption id="cmpcap" style="font-size:12px;color:#43718B;margin-top:4px">Stacked horizontal bars; revenue per pupil; sorted desc.</figcaption>
       </figure>
       {footer}
     </div>
-    """
+    """)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -435,7 +453,7 @@ def render_multi_fy(data: dict[str, Any]) -> str:
         ],
     )
 
-    return f"""
+    return _wrap(f"""
     <div class="scde-report">
       <h1>{html.escape(d['name'])} — Multi-Year Revenue</h1>
       <div class="meta">District {html.escape(d['id'])} · generated {date.today().isoformat()}</div>
@@ -447,7 +465,7 @@ def render_multi_fy(data: dict[str, Any]) -> str:
       {chart_svg}
       {footer}
     </div>
-    """
+    """)
 
 
 def _multi_fy_chart_svg(rows: list[dict], buckets: list[str]) -> str:
@@ -487,7 +505,7 @@ def _multi_fy_chart_svg(rows: list[dict], buckets: list[str]) -> str:
         )
 
     lines = []
-    legend_items = []
+    legend_pairs: list[tuple[str, str]] = []
     for bi, b in enumerate(buckets):
         col = CATEGORICAL_PALETTE[bi % len(CATEGORICAL_PALETTE)]
         pts = []
@@ -499,14 +517,14 @@ def _multi_fy_chart_svg(rows: list[dict], buckets: list[str]) -> str:
             for p in pts:
                 x, y = p.split(",")
                 lines.append(f'<circle cx="{x}" cy="{y}" r="3" fill="{col}"/>')
-        legend_items.append(
-            f'<g transform="translate({8 + bi*120},6)">'
-            f'<rect width="10" height="10" fill="{col}"/>'
-            f'<text x="14" y="9" font-size="10" fill="#2F3D4C">{html.escape(b[:18])}</text>'
-            f'</g>'
-        )
+        legend_pairs.append((col, b))
 
-    return f'<svg viewBox="0 0 {w} {h+40}" width="100%" style="max-width:900px" role="img" aria-label="Multi-year per-pupil revenue trend by bucket">{"".join(grid)}{"".join(lines)}<g transform="translate(0,{h+8})">{"".join(legend_items)}</g></svg>'
+    svg = (
+        f'<svg viewBox="0 0 {w} {h}" width="100%" style="max-width:900px;display:block" '
+        f'role="img" aria-label="Multi-year per-pupil revenue trend by bucket">'
+        f'{"".join(grid)}{"".join(lines)}</svg>'
+    )
+    return svg + _legend_html(legend_pairs)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -520,7 +538,7 @@ def render_ytd_chart(data: dict[str, Any]) -> str:
     rows = data["rows"]
 
     if not rows:
-        return f'<div class="scde-report"><h1>{html.escape(d["name"])} — {fmt_fy(fy)} YTD</h1><p>No SCEIS data for this district + FY.</p></div>'
+        return _wrap(f'<div class="scde-report"><h1>{html.escape(d["name"])} — {fmt_fy(fy)} YTD</h1><p>No SCEIS data for this district + FY.</p></div>')
 
     # Stream → palette index. State=0 (SCDE blue, primary), Federal=1 (orange,
     # high-contrast against blue), Other=7 (neutral gray).
@@ -580,13 +598,7 @@ def render_ytd_chart(data: dict[str, Any]) -> str:
             f'<text x="{pad_l-6}" y="{y+3}" text-anchor="end" font-size="10" font-family="JetBrains Mono,monospace" fill="#43718B">{html.escape(fmt_money_si(v))}</text>'
         )
 
-    legend = "".join(
-        f'<g transform="translate({8 + i*100},6)">'
-        f'<rect width="10" height="10" fill="{palette.get(s,"#999")}"/>'
-        f'<text x="14" y="9" font-size="11" fill="#2F3D4C">{html.escape(s)}</text>'
-        f'</g>'
-        for i, s in enumerate(streams)
-    )
+    legend_html = _legend_html([(palette.get(s, "#999"), s) for s in streams])
 
     grand = sum(r["total"] for r in rows)
     txn_count = sum(r["count"] for r in rows)
@@ -600,21 +612,21 @@ def render_ytd_chart(data: dict[str, Any]) -> str:
         ],
     )
 
-    return f"""
+    return _wrap(f"""
     <div class="scde-report">
       <h1>{html.escape(d['name'])} — {fmt_fy(fy)} Year-to-Date by Month</h1>
       <div class="meta">District {html.escape(d['id'])} · {fmt_int(txn_count)} SCEIS transactions · grand total {html.escape(fmt_money(grand))}</div>
       <figure>
-        <svg viewBox="0 0 {w} {h+40}" width="100%" style="max-width:1000px" role="img" aria-labelledby="ytdcap">
+        <svg viewBox="0 0 {w} {h}" width="100%" style="max-width:1000px;display:block" role="img" aria-labelledby="ytdcap">
           {''.join(grid)}
           {''.join(bars)}
-          <g transform="translate(0,{h+10})">{legend}</g>
         </svg>
+        {legend_html}
         <figcaption id="ytdcap" style="font-size:12px;color:#43718B;margin-top:4px">Stacked monthly SCEIS payments by funding stream.</figcaption>
       </figure>
       {footer}
     </div>
-    """
+    """)
 
 
 def render_ytd_detail(data: dict[str, Any]) -> str:
@@ -623,7 +635,7 @@ def render_ytd_detail(data: dict[str, Any]) -> str:
     rows = data["rows"]
 
     if not rows:
-        return f'<div class="scde-report"><h1>{html.escape(d["name"])} — {fmt_fy(fy)} YTD Detail</h1><p>No SCEIS data.</p></div>'
+        return _wrap(f'<div class="scde-report"><h1>{html.escape(d["name"])} — {fmt_fy(fy)} YTD Detail</h1><p>No SCEIS data.</p></div>')
 
     streams = sorted({s for r in rows for s in r["streams"]})
     head = (
@@ -665,7 +677,7 @@ def render_ytd_detail(data: dict[str, Any]) -> str:
         ],
     )
 
-    return f"""
+    return _wrap(f"""
     <div class="scde-report">
       <h1>{html.escape(d['name'])} — {fmt_fy(fy)} YTD Monthly Detail</h1>
       <div class="meta">District {html.escape(d['id'])} · generated {date.today().isoformat()}</div>
@@ -675,7 +687,7 @@ def render_ytd_detail(data: dict[str, Any]) -> str:
       </table>
       {footer}
     </div>
-    """
+    """)
 
 
 # ──────────────────────────────────────────────────────────────────────
