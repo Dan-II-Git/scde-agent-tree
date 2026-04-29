@@ -217,3 +217,93 @@ CREATE TABLE IF NOT EXISTS lea_wpu_allocations (
 -- ============================================================
 
 -- Reserved namespace; populated lazily.
+
+-- ============================================================
+-- Seed data — lookup_sceis_program_classification
+-- ============================================================
+--
+-- 22 curated regex rules driving the State / Federal / Other split in
+-- vw_sceis_fi_payments_classified. The view applies them to UPPER(reference
+-- with district prefix stripped). Rules are upserted by Rule_Order so this
+-- block is idempotent — re-running init.sql restores the canonical ruleset
+-- without touching unrelated rows the user may have added with other
+-- Rule_Order values.
+--
+-- Coverage (as of 2026-04-28): ~98% of district-attributed dollars classified;
+-- ~2% land in 'Other' (mostly Reference-field truncation in source files).
+
+INSERT INTO lookup_sceis_program_classification
+    (Rule_Order, Pattern, Funding_Stream, Program_Tag, Description, Source)
+VALUES
+    ( 10, '\bESSER\b', 'Federal', 'ESSER',
+        'Elementary and Secondary School Emergency Relief (CARES/CRRSA/ARP)',
+        'curated 2026-04-27'),
+    ( 20, '\bARP\b', 'Federal', 'ARP',
+        'American Rescue Plan',
+        'curated 2026-04-27'),
+    ( 30, '\bCARES?\b', 'Federal', 'CARES',
+        'Coronavirus Aid, Relief, and Economic Security Act',
+        'curated 2026-04-27'),
+    ( 40, '\bGEER\b', 'Federal', 'GEER',
+        'Governor''s Emergency Education Relief',
+        'curated 2026-04-27'),
+    ( 50, '\bTITLE\b', 'Federal', 'Title I-IV',
+        'ESEA Title I/II/III/IV (Improving Basic Programs, Educator Effectiveness, ELL, Student Support)',
+        'curated 2026-04-27'),
+    ( 60, '\bIDEA\b', 'Federal', 'IDEA',
+        'Individuals with Disabilities Education Act',
+        'curated 2026-04-27'),
+    ( 70, '\bMCKINNE', 'Federal', 'McKinney-Vento',
+        'McKinney-Vento Homeless Education Assistance',
+        'curated 2026-04-27'),
+    ( 80, '\bCCLC\b', 'Federal', '21st CCLC',
+        '21st Century Community Learning Centers',
+        'curated 2026-04-27'),
+    ( 90, '\bREAP\b', 'Federal', 'REAP',
+        'Rural Education Achievement Program',
+        'curated 2026-04-27'),
+    (100, '\bNSLP\b|\bSBP\b|\bSFSP\b|\bNSLE\b', 'Federal', 'USDA NSLP/SBP/SFSP',
+        'USDA child nutrition: National School Lunch / School Breakfast / Summer Food Service',
+        'curated 2026-04-27'),
+    (110, '\bESY\b', 'Federal', 'ESY',
+        'Extended School Year (IDEA-related)',
+        'curated 2026-04-27'),
+    (120, '\bFED\b', 'Federal', 'FED-tagged',
+        'Generic federal-source flag in Reference',
+        'curated 2026-04-27'),
+    (200, '\bEIA\b', 'State', 'EIA',
+        'Education Improvement Act (1984)',
+        'curated 2026-04-27'),
+    (210, '\bARTS\b', 'State', 'Arts in BC',
+        'Arts in Basic Curriculum',
+        'curated 2026-04-27'),
+    (220, '\bSAC\b|STATE\s+AID|\bCLASSROOMS?\b', 'State', 'SAC',
+        'State Aid to Classrooms (per-pupil base aid)',
+        'curated 2026-04-27'),
+    (230, '\bEFA\b', 'State', 'EFA',
+        'Education Finance Act',
+        'curated 2026-04-27'),
+    (240, 'PROP\s*TAX|REIMB.*PROP|PT\s*REIMB', 'State', 'Property Tax Reimb',
+        'Property Tax Reimbursement to LEAs',
+        'curated 2026-04-27'),
+    (250, '\bLOTTERY\b', 'State', 'Lottery',
+        'Lottery-funded state programs',
+        'curated 2026-04-27'),
+    (900, '^S\d{6}', 'Federal', 'S-period (USDA Nutrition)',
+        'Period-coded USDA federal nutrition disbursement (NSLP/SBP/SFSP) routed through SC Dept of Education',
+        'curated 2026-04-28 (corrected from SAC default)'),
+    (910, '^F\d{6}', 'Federal', 'F-period (federal default)',
+        'Period-coded federal disbursement (no explicit program acronym)',
+        'curated 2026-04-27'),
+    (920, '^U\d{6}', 'Federal', 'U-period (Prior-yr Nutrition payable)',
+        'Prior-year payable of federal nutrition (timing-shifted S-period payment)',
+        'curated 2026-04-28 (corrected from uncategorized)'),
+    (930, '^X\d{6}', 'Other', 'X-period (uncategorized)',
+        'Period-coded reference with X prefix; provenance unclear',
+        'curated 2026-04-27')
+ON CONFLICT (Rule_Order) DO UPDATE SET
+    Pattern        = excluded.Pattern,
+    Funding_Stream = excluded.Funding_Stream,
+    Program_Tag    = excluded.Program_Tag,
+    Description    = excluded.Description,
+    Source         = excluded.Source;
