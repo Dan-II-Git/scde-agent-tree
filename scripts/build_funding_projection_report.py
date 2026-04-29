@@ -140,15 +140,16 @@ def fetch_top_codes(con, district_id, scenario, limit=12):
     for code in top_codes:
         meta = con.execute("""
             SELECT c.Display_Title, c.Stream_Type, c.Allocation_Basis,
-                   COALESCE(a.Short_Description, h.Short_Description) AS short_desc
+                   COALESCE(a.Short_Description, h.Short_Description) AS short_desc,
+                   COALESCE(a.Full_Description, h.Full_Description) AS full_desc
             FROM code_district_funding_streams c
             LEFT JOIN code_accounting_codes a ON a.Code = c.REV_Code AND a.Type = 'Revenue'
             LEFT JOIN code_historical_revenue_codes h ON h.Code = c.REV_Code AND h.Type = 'Revenue'
             WHERE c.REV_Code = ?
         """, [code]).fetchone()
         if meta is None:
-            meta = (code, None, None, None)
-        title, stream, alloc, short_desc = meta
+            meta = (code, None, None, None, None)
+        title, stream, alloc, short_desc, full_desc = meta
 
         history = {fy: amt for fy, amt in con.execute("""
             SELECT FY, CAST(Amount AS BIGINT) FROM lea_revenues
@@ -167,6 +168,7 @@ def fetch_top_codes(con, district_id, scenario, limit=12):
         rows.append({
             "code": code, "title": title or code, "stream": stream,
             "allocation_basis": alloc, "short_desc": short_desc,
+            "full_desc": full_desc,
             "history": history, "projection": projection,
         })
     return rows
@@ -205,10 +207,14 @@ def fetch_local_composition(con, district_id, top_n=5):
         return None
 
     rows = con.execute("""
-        SELECT r.Revenue_Code, c.Display_Title, CAST(r.Amount AS BIGINT)
+        SELECT r.Revenue_Code, c.Display_Title, CAST(r.Amount AS BIGINT),
+               COALESCE(a.Short_Description, h.Short_Description) AS short_desc,
+               COALESCE(a.Full_Description, h.Full_Description) AS full_desc
         FROM lea_revenues r
         LEFT JOIN code_district_funding_streams c ON c.REV_Code = r.Revenue_Code
         JOIN vw_revenue_code_status v ON v.REV_Code = r.Revenue_Code
+        LEFT JOIN code_accounting_codes a ON a.Code = r.Revenue_Code AND a.Type = 'Revenue'
+        LEFT JOIN code_historical_revenue_codes h ON h.Code = r.Revenue_Code AND h.Type = 'Revenue'
         WHERE r.District_ID = ? AND r.FY = ?
           AND r.Reported_Flag = TRUE
           AND r.Amount IS NOT NULL AND r.Amount != 0
@@ -225,13 +231,14 @@ def fetch_local_composition(con, district_id, top_n=5):
 
     items = [
         {"code": code, "title": title or code, "amount": amount,
+         "short_desc": short_desc, "full_desc": full_desc,
          "pct": (amount / total * 100) if total else 0}
-        for code, title, amount in top
+        for code, title, amount, short_desc, full_desc in top
     ]
     if other_total > 0:
         items.append({
             "code": "—", "title": f"Other ({len(rows) - top_n} codes)",
-            "amount": other_total,
+            "amount": other_total, "short_desc": None, "full_desc": None,
             "pct": (other_total / total * 100) if total else 0,
         })
 
@@ -299,6 +306,31 @@ def fetch_charter_breakdown(con, district_id):
         "rate_source_fy": max(rates.keys()) if rates else None,
         "historical_rates": {fy: int(r) for fy, r in rates.items()},
     }
+
+
+def code_info_button(code, title, short_desc, full_desc, max_full_chars=600):
+    """
+    Render a small "i" button next to a Revenue_Code that surfaces
+    Short_Description on hover and Full_Description on click via Tippy.js.
+    Returns inline HTML; the Tippy init script reads data-* attributes.
+    """
+    if not short_desc and not full_desc:
+        return ""  # no description available — don't show a button at all
+    short_part = html.escape(short_desc or "")
+    full_part = html.escape(full_desc or "")
+    # Truncate Full_Description for the popup body
+    if full_part and len(full_part) > max_full_chars:
+        full_part = full_part[:max_full_chars].rsplit(" ", 1)[0] + "…"
+    title_part = html.escape(title or code)
+    code_part = html.escape(code)
+    return (
+        f'<button class="info-btn" '
+        f'data-code="{code_part}" '
+        f'data-title="{title_part}" '
+        f'data-short="{short_part}" '
+        f'data-full="{full_part}" '
+        f'aria-label="Show description for code {code_part}">i</button>'
+    )
 
 
 def fmt_currency(n):
@@ -401,9 +433,11 @@ def _render_local_composition(comp):
     bar_rows = []
     for item in comp["items"]:
         pct = item["pct"]
+        info = code_info_button(item["code"], item["title"],
+                                item.get("short_desc"), item.get("full_desc"))
         bar_rows.append(f"""
         <tr>
-          <td class="mono small">{html.escape(item['code'])}</td>
+          <td class="mono small code-cell">{html.escape(item['code'])} {info}</td>
           <td>{html.escape(item['title'])}</td>
           <td class="num">{fmt_currency(item['amount'])}</td>
           <td class="num small">{pct:.0f}%</td>
@@ -547,9 +581,10 @@ def _render_codes_table(top_codes, fys_history, fys_proj):
     )
     rows.append("<tbody>")
     for r in top_codes:
+        info = code_info_button(r["code"], r["title"], r.get("short_desc"), r.get("full_desc"))
         cells = [
-            f'<td class="mono">{html.escape(r["code"])}</td>',
-            f'<td title="{html.escape(r["short_desc"] or "")}">{html.escape(r["title"])}</td>',
+            f'<td class="mono code-cell">{html.escape(r["code"])} {info}</td>',
+            f'<td>{html.escape(r["title"])}</td>',
             f'<td>{html.escape(r["stream"] or "")}</td>',
         ]
         for fy in fys_history:
@@ -609,6 +644,9 @@ _HTML_TEMPLATE = """<!doctype html>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/@popperjs/core@2"></script>
+<script src="https://unpkg.com/tippy.js@6"></script>
+<link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light-border.css">
 <style>
   :root {{
     --brand-primary: #2F3D4C;
@@ -815,6 +853,64 @@ _HTML_TEMPLATE = """<!doctype html>
     height: 100%;
     border-radius: 3px;
   }}
+  .code-cell {{ white-space: nowrap; }}
+  .info-btn {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 4px;
+    border: 1px solid var(--brand-tertiary);
+    background: white;
+    color: var(--brand-tertiary);
+    border-radius: 50%;
+    font-family: 'Poppins', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    font-style: italic;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    transition: background 120ms ease, color 120ms ease;
+    vertical-align: middle;
+  }}
+  .info-btn:hover, .info-btn:focus {{
+    background: var(--brand-tertiary);
+    color: white;
+    outline: none;
+  }}
+  .tippy-content .code-tip-header {{
+    font-weight: 600;
+    color: var(--brand-primary);
+    margin-bottom: 6px;
+    font-size: 13px;
+  }}
+  .tippy-content .code-tip-short {{
+    font-size: 12px;
+    color: var(--neutral-fg);
+    margin-bottom: 8px;
+    line-height: 1.4;
+  }}
+  .tippy-content .code-tip-full {{
+    font-size: 11px;
+    color: var(--neutral-fg);
+    line-height: 1.45;
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+  }}
+  .tippy-content .code-tip-full-toggle {{
+    font-size: 11px;
+    color: var(--brand-tertiary);
+    cursor: pointer;
+    text-decoration: underline;
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+  }}
 </style>
 </head>
 <body>
@@ -1005,6 +1101,47 @@ _HTML_TEMPLATE = """<!doctype html>
         }}
       }}
     }}
+  }});
+}})();
+
+// Tippy tooltips on .info-btn — short description by default, expands to full on click.
+(function() {{
+  if (typeof tippy === 'undefined') return;
+  tippy('.info-btn', {{
+    theme: 'light-border',
+    allowHTML: true,
+    interactive: true,
+    trigger: 'click',
+    appendTo: () => document.body,
+    placement: 'top',
+    maxWidth: 360,
+    content: function(el) {{
+      const code = el.dataset.code || '';
+      const title = el.dataset.title || '';
+      const short = el.dataset.short || '';
+      const full = el.dataset.full || '';
+      let html = '<div class="code-tip-header">' + code + ' — ' + title + '</div>';
+      if (short) html += '<div class="code-tip-short">' + short + '</div>';
+      if (full && full !== short) {{
+        html += '<button class="code-tip-full-toggle">Show full description</button>';
+        html += '<div class="code-tip-full" style="display:none;">' + full + '</div>';
+      }}
+      return html;
+    }},
+    onShown: function(instance) {{
+      const btn = instance.popper.querySelector('.code-tip-full-toggle');
+      if (!btn) return;
+      btn.addEventListener('click', function() {{
+        const full = instance.popper.querySelector('.code-tip-full');
+        if (full.style.display === 'none') {{
+          full.style.display = 'block';
+          btn.textContent = 'Hide full description';
+        }} else {{
+          full.style.display = 'none';
+          btn.textContent = 'Show full description';
+        }}
+      }});
+    }},
   }});
 }})();
 </script>
