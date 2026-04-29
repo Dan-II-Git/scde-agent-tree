@@ -50,6 +50,8 @@ PARTIAL_FY25_DISTRICTS = {
     "Laurens 55", "Barnwell 45", "Barnwell 48", "Clarendon 06",
 }
 
+CHARTER_AUTHORIZER_IDS = {"4701", "4801", "4901"}
+
 METHOD_TOOLTIPS = {
     "trend_ols": "Linear OLS regression on >=3 FYs of history with 80% prediction interval.",
     "trend_ols_2fy": "Linear extrapolation from 2 FYs of history; bounds use a 15% heuristic (no residual SE).",
@@ -177,6 +179,69 @@ def fetch_methodology(con, district_id, scenario):
     return counts
 
 
+def fetch_charter_breakdown(con, district_id):
+    """
+    For the 3 charter authorizers, return per-mode (B&M vs Virtual) WPU and
+    ADM by FY, plus the implied per-WPU rate from historical SAC actuals.
+    Returns None for non-charter districts.
+    """
+    if district_id not in CHARTER_AUTHORIZER_IDS:
+        return None
+
+    modes = con.execute("""
+        SELECT FY, Category,
+               CAST(ADM_135_Day AS BIGINT) AS adm,
+               CAST(Weighted_Pupils AS DECIMAL(12,2)) AS wpu
+        FROM lea_wpu_allocations
+        WHERE District_ID = ? AND Category IN ('Charter_BM', 'Charter_VIRT')
+        ORDER BY FY, Category
+    """, [district_id]).fetchall()
+
+    # Authorizer's effective per-WPU rate from historical SAC actuals.
+    # SAC = sum(3103, 3503, 3541) / total WPU for each FY.
+    rates = {}
+    for fy, sac, total_wpu in con.execute("""
+        WITH sac AS (
+          SELECT FY, SUM(Amount) AS dollars FROM lea_revenues
+          WHERE District_ID = ? AND Revenue_Code IN ('3103','3503','3541')
+            AND Reported_Flag = TRUE GROUP BY FY
+        ),
+        wpu AS (
+          SELECT FY, Weighted_Pupils FROM lea_wpu_allocations
+          WHERE District_ID = ? AND Category = 'Total' AND Report_Cycle = 135
+        )
+        SELECT s.FY, CAST(s.dollars AS BIGINT),
+               CAST(w.Weighted_Pupils AS DECIMAL(12,2))
+        FROM sac s LEFT JOIN wpu w USING (FY)
+    """, [district_id, district_id]).fetchall():
+        if total_wpu and total_wpu > 0:
+            rates[fy] = float(sac) / float(total_wpu)
+
+    # Pick most-recent reliable rate (FY24 is the cleanest)
+    effective_rate = rates.get(2024) or rates.get(2023) or 3366.0
+
+    # Build per-FY-per-mode display rows
+    breakdown = []
+    for fy, mode, adm, wpu in modes:
+        wpu_f = float(wpu) if wpu is not None else 0.0
+        wpu_per_adm = wpu_f / adm if adm else None
+        implied_state_aid = wpu_f * effective_rate if wpu_f else 0
+        per_pupil = implied_state_aid / adm if adm else None
+        breakdown.append({
+            "fy": fy, "mode": mode, "adm": adm, "wpu": int(wpu_f),
+            "wpu_per_adm": wpu_per_adm,
+            "implied_state_aid": int(implied_state_aid),
+            "per_pupil": int(per_pupil) if per_pupil else None,
+        })
+
+    return {
+        "rows": breakdown,
+        "effective_rate": int(effective_rate),
+        "rate_source_fy": max(rates.keys()) if rates else None,
+        "historical_rates": {fy: int(r) for fy, r in rates.items()},
+    }
+
+
 def fmt_currency(n):
     if n is None:
         return "n/a"
@@ -192,7 +257,8 @@ def fmt_currency_color(n):
 
 
 def render_html(district_id, district_name, scenario,
-                history, projections, top_codes, methodology, partial_fy25):
+                history, projections, top_codes, methodology, partial_fy25,
+                charter_breakdown=None):
     """Return the full HTML document string."""
     fys_history = sorted({fy for fy, _, _ in history})
     fys_proj = sorted({fy for fy, _, _, _, _ in projections})
@@ -259,11 +325,100 @@ def render_html(district_id, district_name, scenario,
         chart_payload=json.dumps(chart_payload),
         colors_payload=json.dumps(COLORS),
         codes_table=_render_codes_table(top_codes, fys_history, fys_proj),
+        charter_panel=_render_charter_panel(charter_breakdown),
         methodology_summary=_render_methodology(methodology, is_partial_fy25, district_name),
         sunset_count=methodology.get("sunset_zero", 0),
         insufficient_count=methodology.get("insufficient_history", 0),
         trend_count=methodology.get("trend_ols", 0) + methodology.get("trend_ols_2fy", 0),
     )
+
+
+def _render_charter_panel(breakdown):
+    """Render the B&M-vs-Virtual breakdown panel for charter authorizers."""
+    if not breakdown or not breakdown["rows"]:
+        return ""
+
+    # Group rows by FY for side-by-side display
+    by_fy = {}
+    for r in breakdown["rows"]:
+        by_fy.setdefault(r["fy"], {})[r["mode"]] = r
+
+    rate = breakdown["effective_rate"]
+    rate_fy = breakdown["rate_source_fy"]
+
+    fy_blocks = []
+    for fy in sorted(by_fy.keys()):
+        bm = by_fy[fy].get("Charter_BM")
+        vt = by_fy[fy].get("Charter_VIRT")
+        bm_per = bm["per_pupil"] if bm else None
+        vt_per = vt["per_pupil"] if vt else None
+        bm_aid = bm["implied_state_aid"] if bm else None
+        vt_aid = vt["implied_state_aid"] if vt else None
+        bm_weight = bm["wpu_per_adm"] if bm and bm["wpu_per_adm"] else None
+        vt_weight = vt["wpu_per_adm"] if vt and vt["wpu_per_adm"] else None
+        # Discount: virtual per-pupil as % of B&M per-pupil
+        discount = None
+        if bm_per and vt_per:
+            discount = round(100 * (1 - vt_per / bm_per))
+
+        fy_blocks.append(f"""
+        <div class="charter-fy-card">
+          <h3>FY{fy % 100}</h3>
+          <table class="charter-table">
+            <thead>
+              <tr><th>Mode</th><th>ADM</th><th>WPU</th><th>Weight</th>
+                  <th>Implied State Aid</th><th>$ / pupil</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>B&amp;M</strong></td>
+                <td class="num">{bm['adm'] if bm else '—':,}</td>
+                <td class="num">{bm['wpu'] if bm else '—':,}</td>
+                <td class="num">{f"{bm_weight:.3f}" if bm_weight else '—'}</td>
+                <td class="num">{fmt_currency(bm_aid)}</td>
+                <td class="num">{fmt_currency(bm_per)}</td>
+              </tr>
+              <tr>
+                <td><strong>Virtual</strong></td>
+                <td class="num">{vt['adm'] if vt else '—':,}</td>
+                <td class="num">{vt['wpu'] if vt else '—':,}</td>
+                <td class="num">{f"{vt_weight:.3f}" if vt_weight else '—'}</td>
+                <td class="num">{fmt_currency(vt_aid)}</td>
+                <td class="num">{fmt_currency(vt_per)}</td>
+              </tr>
+            </tbody>
+          </table>
+          {f'<p class="discount-note">Virtual pupils receive ~<strong>{discount}%</strong> less state aid per pupil than B&amp;M pupils.</p>' if discount else ''}
+        </div>
+        """)
+
+    rate_note = (
+        f"Implied state aid uses the authorizer's effective per-WPU rate of "
+        f"<code>{fmt_currency(rate)}</code> derived from FY{rate_fy % 100} actual SAC payments "
+        f"(codes 3103, 3503, 3541) divided by 135-day total WPU. "
+        if rate_fy else ""
+    )
+
+    return f"""
+    <section class="charter-card">
+      <h2>Charter Authorizer — B&amp;M vs Virtual Breakdown</h2>
+      <p class="charter-context">
+        SC sets a 1.250 weight for brick-and-mortar charter pupils and a reduced
+        weight for virtual charter pupils (0.650 in FY24, lowered to 0.500 in FY26).
+        Funding is distributed by WPU, so virtual pupils receive a smaller share
+        per head than B&amp;M pupils within the same authorizer.
+      </p>
+      <div class="charter-fy-row">
+        {''.join(fy_blocks)}
+      </div>
+      <p class="charter-context small">
+        {rate_note}
+        Source: <code>lea_wpu_allocations</code> rows where <code>Category IN ('Charter_BM', 'Charter_VIRT')</code>
+        loaded from <code>WPU04524.xlsx</code> (FY24) and <code>WPU04526.xlsx</code> (FY26).
+        FY24 file uses column names "Charter Brick WPU" / "Charter Virtual WPU"; FY26 uses "B&amp;M WPU" / "VIRT WPU".
+      </p>
+    </section>
+    """
 
 
 def _partial_badge(is_partial):
@@ -487,6 +642,47 @@ _HTML_TEMPLATE = """<!doctype html>
     background-size: 8px 4px;
   }}
   .legend-swatch.band {{ background: rgba(67, 113, 139, 0.20); height: 12px; }}
+  .charter-card {{
+    background: white;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 24px;
+  }}
+  .charter-card h2 {{ margin: 0 0 12px; font-size: 18px; }}
+  .charter-context {{ color: var(--neutral-fg); font-size: 13px; line-height: 1.5; margin: 0 0 16px; }}
+  .charter-context.small {{ font-size: 12px; margin-top: 16px; }}
+  .charter-fy-row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }}
+  .charter-fy-card {{
+    background: var(--neutral-bg);
+    border-radius: 6px;
+    padding: 14px;
+  }}
+  .charter-fy-card h3 {{
+    margin: 0 0 8px;
+    font-size: 14px;
+    color: var(--brand-secondary);
+    font-weight: 600;
+  }}
+  table.charter-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+  table.charter-table th {{
+    text-align: left;
+    background: var(--brand-tertiary);
+    color: white;
+    padding: 6px 8px;
+    font-weight: 500;
+  }}
+  table.charter-table td {{ padding: 6px 8px; border-bottom: 1px solid white; }}
+  table.charter-table .num {{ text-align: right; font-family: 'JetBrains Mono', monospace; }}
+  .discount-note {{
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    background: var(--brand-accent);
+    color: var(--brand-primary);
+    font-size: 12px;
+    border-radius: 4px;
+  }}
+  .discount-note strong {{ font-weight: 700; }}
 </style>
 </head>
 <body>
@@ -524,6 +720,8 @@ _HTML_TEMPLATE = """<!doctype html>
       <span><span class="legend-swatch band"></span>80% prediction interval</span>
     </div>
   </section>
+
+  {charter_panel}
 
   <section class="codes-card">
     <h2>Top Revenue Codes — Historical &amp; Projected</h2>
@@ -694,6 +892,7 @@ def main():
     projections = fetch_projections(con, district_id, args.scenario)
     top_codes = fetch_top_codes(con, district_id, args.scenario)
     methodology = fetch_methodology(con, district_id, args.scenario)
+    charter_breakdown = fetch_charter_breakdown(con, district_id)
 
     if not projections:
         sys.exit(f"No projections found for {district_name} ({district_id}) "
@@ -703,6 +902,7 @@ def main():
     html_content = render_html(
         district_id, district_name, args.scenario,
         history, projections, top_codes, methodology, PARTIAL_FY25_DISTRICTS,
+        charter_breakdown=charter_breakdown,
     )
 
     timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")

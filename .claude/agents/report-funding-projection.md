@@ -88,6 +88,19 @@ A single-district forward-looking view. Shows:
    `Full_Description`. The Method column also gets a Tippy tooltip with
    methodology text per value.
 
+9. **Charter authorizer panel.** When `District_ID IN ('4701', '4801',
+   '4901')`, render an additional "B&M vs Virtual Breakdown" panel
+   between the line chart and the codes table. The panel reads
+   per-mode WPU and ADM from `lea_wpu_allocations` rows where
+   `Category IN ('Charter_BM', 'Charter_VIRT')` and computes implied
+   per-pupil state aid using the authorizer's effective per-WPU rate
+   (FY24 actuals: ~$3,366/WPU). Show one card per FY with both modes
+   side-by-side, the weight ratio (1.250 B&M, 0.500-0.650 virtual
+   depending on FY), and the per-pupil discount that virtual pupils
+   receive. Source the FY-specific virtual weight directly from the
+   data — do NOT hardcode 0.500, since it changed from 0.650 (FY24) to
+   0.500 (FY26).
+
 ## Data flow
 
 For detail mode:

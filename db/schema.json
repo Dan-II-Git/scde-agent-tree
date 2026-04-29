@@ -292,13 +292,14 @@
       }
     },
     "lea_wpu_allocations": {
-      "purpose": "Weighted Pupil Units and EFA funding calculations. Each pupil category carries a different weight; ADM × weight = WPU. Schema drifted across years — earlier years include allocation columns that later years dropped.",
+      "purpose": "Weighted Pupil Units and EFA funding calculations. Each pupil category carries a different weight; ADM × weight = WPU. Schema drifted across years — earlier years include allocation columns that later years dropped. Supports both 45-day (preliminary) and 135-day (funding-final) cycle data; use Report_Cycle to distinguish.",
       "stability": "stable",
-      "source": "WPU13521 through WPU_13525.xlsx · 5 fiscal years",
+      "source": "WPU13521 through WPU_13525.xlsx · 5 fiscal years (135-day); WPU04522 through WPU04526.xlsx · 5 fiscal years (45-day)",
       "columns": {
         "District_ID": "Joins to dim_district.District_ID.",
         "FY": "Fiscal year.",
         "Category": "Pupil category: Kindergarten, Primary, Elementary, Special Ed tiers, etc.",
+        "Report_Cycle": "Days into the school year when the count was taken (45 or 135). 45-day is preliminary/early-year; 135-day is the funding-final measure.",
         "ADM_135_Day": "135-day Average Daily Membership for this category.",
         "Weighted_Pupils": "ADM × category weight = the WPU figure.",
         "State_Allocation": "State EFA funding for this category. Null for FY23+ (column dropped from source files).",

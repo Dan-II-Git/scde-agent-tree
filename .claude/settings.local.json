@@ -63,7 +63,11 @@
       "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projections.py)",
       "Bash(powershell *)",
       "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district \"Aiken 01\")",
-      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district \"Beaufort 01\")"
+      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district \"Beaufort 01\")",
+      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/load_wpu_charter_mode.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district \"Charter Institute at Erskine\")",
+      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district 4701)",
+      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district 4901)"
     ]
   }
 }

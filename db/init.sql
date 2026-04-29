@@ -227,12 +227,13 @@ CREATE TABLE IF NOT EXISTS lea_wpu_allocations (
     District_ID             VARCHAR NOT NULL,
     FY                      SMALLINT NOT NULL,
     Category                VARCHAR NOT NULL,   -- Kindergarten, Primary, ...
+    Report_Cycle            SMALLINT NOT NULL,  -- 45 (preliminary) or 135 (funding-final)
     ADM_135_Day             DECIMAL(12, 2),
     Weighted_Pupils         DECIMAL(12, 2),
     State_Allocation        DECIMAL(18, 2),     -- nullable for FY23+
     Local_Required_Support  DECIMAL(18, 2),     -- nullable for FY23+
     Audit_Standard          DECIMAL(18, 2),     -- nullable for FY23+
-    PRIMARY KEY (District_ID, FY, Category)
+    PRIMARY KEY (District_ID, FY, Category, Report_Cycle)
 );
 
 -- ============================================================

@@ -51,7 +51,7 @@ after either changes.
 - `lea_expenditures` (District_ID, Function_Code, FY PK, Amount)
 - `lea_adm_counts` (District_ID, School_Code, SY PK, Report_Cycle, Total_Membership, ...)
 - `lea_headcounts` (District_ID, SY PK, Report_Cycle, Total_Active_Enrollment, ...)
-- `lea_wpu_allocations` (District_ID, FY PK, Category, Weighted_Pupils, ...)
+- `lea_wpu_allocations` (District_ID, FY, Category, Report_Cycle PK — composite; Weighted_Pupils, ...) — `Report_Cycle` is 45 (preliminary/early-year) or 135 (funding-final). Both cycles can coexist for the same (district, FY). Existing rows are 135-day; 45-day rows come from WPU04522–WPU04526.xlsx uploads.
 
 ### code_*  — owned by `code-catalog`
 - `code_accounting_codes` (Code, Type PK, Full_Name, Display_Name, ...)

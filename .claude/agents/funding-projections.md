@@ -126,6 +126,42 @@ funding-stream classification:
    seeding additional rows in `policy_rate_assumptions` and re-running
    the build; no agent changes required.
 
+11. **SAC per WPU is NOT uniform across districts (ITA equalization is
+    in play).** Empirical FY24 actuals show SAC-per-WPU ranging from
+    $1,443 (Beaufort, high property tax base) to $3,366 (charter
+    authorizers, no local base), mean $2,679, stddev $474 — an 18%
+    spread. The SC General Assembly's appropriation says "average
+    $5,724 per pupil" but masks the ITA-driven equalization. When the
+    formula path activates (i.e. when forward-year `sac_total_state_share`
+    is seeded), DO NOT use uniform `district_WPU / statewide_WPU * total`
+    — that systematically over-projects wealthy districts and
+    under-projects poor/charter districts. Instead use
+    `historical_per_WPU_rate × projected_WPU` per district, where the
+    historical rate is computed from the most-recent reliable FY of
+    actuals. This implicitly preserves ITA equalization without
+    requiring `SC_Index_of_Taxpaying_Ability_*.csv` to be loaded.
+
+12. **Report_Cycle distinguishes 45-day from 135-day WPU.**
+    `lea_wpu_allocations` carries both. Use `Report_Cycle = 135` for
+    funding-final calculations (the 135-day count is the legal funding
+    measure). Use `Report_Cycle = 45` only as a leading indicator for
+    FY26+ projections where 135-day data isn't yet available. Never mix
+    the two within a single trend fit.
+
+13. **Charter authorizer per-mode WPU is loaded with `Category IN
+    ('Charter_BM', 'Charter_VIRT')`.** Three authorizers (4701 SCPCSD,
+    4801 Erskine, 4901 Limestone) carry per-mode rows for FYs where the
+    source WPU file includes the breakdown columns (FY24 from
+    WPU04524.xlsx, FY26 from WPU04526.xlsx). The per-mode rows do NOT
+    feed `mart_funding_projections` directly — they exist for the
+    `report-funding-projection` agent's charter panel. The aggregate
+    authorizer projection still uses `Category = 'Total'`.
+
+14. **Charter virtual weight differs by FY.** SC reduced the virtual
+    charter weight from 0.65 (FY24) to 0.50 (FY26), a 23% cut. Any
+    multi-year analysis touching virtual charter funding must surface
+    this rate change rather than smoothing across it.
+
 10. **Negative currency uses accounting parentheses** — `$(1,234)`, never
     `-$1,234`. Applies to any prose totals you quote (e.g. a district
     with a negative trend coefficient that produces a projected
