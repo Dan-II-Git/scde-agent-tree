@@ -16,6 +16,10 @@ __pycache__/
 .venv/
 venv/
 
+# Local secrets — Anthropic API key, etc.
+.env
+.env.local
+
 # OS noise
 .DS_Store
 Thumbs.db
@@ -29,3 +33,4 @@ desktop.ini
 # Claude Code session artifacts
 .claude/sessions/
 .claude/cache/
+.claude/scheduled_tasks.lock

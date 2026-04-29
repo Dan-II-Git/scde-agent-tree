@@ -20,7 +20,28 @@
       "Bash(awk 'NR>=160 && NR<=180' \"C:/Users/Dan's Test Device/Finance Dazzle/scde-agent-tree/data/uploads/sc-districts-map.html\")",
       "Bash(awk 'NR==181 {print length\\($0\\)}' \"C:/Users/Dan's Test Device/Finance Dazzle/scde-agent-tree/data/uploads/sc-districts-map.html\")",
       "Bash(awk NR>=185 && NR<=260 *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(.venv/Scripts/python.exe -c \"import duckdb; c=duckdb.connect\\('db/scde.duckdb', read_only=True\\); [print\\(r\\) for r in c.execute\\(\\\\\"SELECT table_name FROM duckdb_tables\\(\\) WHERE schema_name='main' ORDER BY table_name\\\\\"\\).fetchall\\(\\)]\")",
+      "Bash(python -c \"import duckdb; c=duckdb.connect\\('db/scde.duckdb', read_only=True\\); [print\\(r\\) for r in c.execute\\(\\\\\"SELECT table_name FROM duckdb_tables\\(\\) WHERE schema_name='main' ORDER BY table_name\\\\\"\\).fetchall\\(\\)]\")",
+      "Bash(python -m venv .venv)",
+      "Bash(.venv/Scripts/python.exe -m pip install -r requirements.txt)",
+      "Bash(.venv/Scripts/python.exe *)",
+      "Bash(tasklist //fi \"IMAGENAME eq python.exe\")",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(tasklist //fi \"IMAGENAME eq python.exe\" //nh)",
+      "Bash(curl -fs http://127.0.0.1:8765/health)",
+      "Bash(curl -fs http://127.0.0.1:8765/api/districts)",
+      "Bash(curl -fs \"http://127.0.0.1:8765/api/years\")",
+      "Bash(curl -fso /tmp/detail.html \"http://127.0.0.1:8765/api/report/detail?district=2301&fy=2024\")",
+      "Bash(curl -fso /tmp/multi.html \"http://127.0.0.1:8765/api/report/multi-fy?district=2301\")",
+      "Bash(curl -fso /tmp/ytd.html \"http://127.0.0.1:8765/api/ytd/chart?district=2301\")",
+      "Bash(curl -fso /tmp/map.json \"http://127.0.0.1:8765/api/map?fy=2024\")",
+      "Bash(curl -fs \"http://127.0.0.1:8765/api/map?fy=2024\" -o map.json)",
+      "Bash(curl -fso compare.html \"http://127.0.0.1:8765/api/report/compare?fy=2024&mode=table\")",
+      "Bash(curl -fso compare_chart.html \"http://127.0.0.1:8765/api/report/compare?fy=2024&mode=chart\")",
+      "Bash(curl -fs \"http://127.0.0.1:8765/api/report/detail?district=2301&fy=2024\")",
+      "Bash(curl -fs \"http://127.0.0.1:8765/api/report/detail?district=2301&fy=2024\" -o /tmp/d.html)",
+      "Bash(curl -fs \"http://127.0.0.1:8765/api/report/detail?district=2301&fy=2024\" -o d.html)"
     ]
   }
 }

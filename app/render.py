@@ -1,0 +1,626 @@
+"""HTML rendering for the four report flavors. SCDE design tokens; no JS frameworks except the YTD chart's inline Recharts."""
+from __future__ import annotations
+
+import html
+from datetime import date
+from typing import Any
+
+# ──────────────────────────────────────────────────────────────────────
+# Currency / number formatting
+# ──────────────────────────────────────────────────────────────────────
+
+
+def fmt_money(v: float | int | None, *, zero_dash: bool = False) -> str:
+    """Accounting-parentheses negatives. Zero is $0 (or em-dash if zero_dash)."""
+    if v is None:
+        return "n/a"
+    n = round(float(v))
+    if n == 0:
+        return "—" if zero_dash else "$0"
+    if n < 0:
+        return f"$({abs(n):,})"
+    return f"${n:,}"
+
+
+def fmt_pp(v: float | int | None) -> str:
+    """Per-pupil currency, no decimals."""
+    return fmt_money(v)
+
+
+def fmt_int(v: int | None) -> str:
+    return f"{v:,}" if v is not None else "n/a"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Shared CSS — SCDE tokens
+# ──────────────────────────────────────────────────────────────────────
+
+REPORT_CSS = """
+:root {
+  --brand-primary: #2F3D4C;
+  --brand-secondary: #234058;
+  --brand-tertiary: #43718B;
+  --brand-accent: #F1BA55;
+  --semantic-success: #1F7A3A;
+  --semantic-warning: #8A5A00;
+  --semantic-danger: #B3261E;
+  --semantic-info: #234058;
+  --neutral-bg: #F4F6F8;
+  --neutral-fg: #2F3D4C;
+  --border: #7E8C9E;
+  --border-subtle: #CBD5E0;
+  --font-display: 'Poppins', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+}
+.scde-report {
+  font-family: var(--font-display);
+  color: var(--neutral-fg);
+  background: #fff;
+  padding: 24px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.scde-report h1 { font-size: 22px; margin: 0 0 4px 0; color: var(--brand-primary); }
+.scde-report h2 { font-size: 16px; margin: 16px 0 8px 0; color: var(--brand-secondary); border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px; }
+.scde-report .meta { color: var(--brand-tertiary); font-size: 12px; margin-bottom: 16px; }
+.scde-report table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+.scde-report th, .scde-report td { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: top; }
+.scde-report th { background: var(--neutral-bg); color: var(--brand-primary); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; position: sticky; top: 0; }
+.scde-report td.num, .scde-report th.num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+.scde-report tr.subtotal td, .scde-report tr.statewide td { font-weight: 600; background: var(--neutral-bg); border-top: 2px solid var(--brand-secondary); }
+.scde-report tr.statewide td { background: var(--brand-primary); color: #fff; }
+.scde-report tr.statewide td.num { color: var(--brand-accent); }
+.scde-report .neg { color: var(--semantic-danger); }
+.scde-report .stream-local { background: rgba(86, 180, 233, 0.08); }
+.scde-report .stream-state { background: rgba(243, 186, 85, 0.08); }
+.scde-report .stream-federal { background: rgba(204, 121, 167, 0.08); }
+.scde-report .footer { margin-top: 24px; padding: 12px; background: var(--neutral-bg); border-left: 3px solid var(--brand-tertiary); font-size: 12px; color: var(--brand-tertiary); }
+.scde-report .footer p { margin: 4px 0; }
+.scde-report .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: var(--font-mono); margin-left: 6px; }
+.scde-report .badge.warn { background: #FBEFD9; color: var(--semantic-warning); border: 1px solid var(--semantic-warning); }
+.scde-report .badge.info { background: #E5EAF0; color: var(--semantic-info); border: 1px solid var(--semantic-info); }
+.scde-report .badge.danger { background: #F8E2E0; color: var(--semantic-danger); border: 1px solid var(--semantic-danger); }
+.scde-report .kpi-row { display: flex; gap: 16px; margin: 12px 0; flex-wrap: wrap; }
+.scde-report .kpi { background: var(--neutral-bg); padding: 12px 16px; border-radius: 8px; min-width: 140px; }
+.scde-report .kpi-label { font-size: 11px; text-transform: uppercase; color: var(--brand-tertiary); letter-spacing: 0.04em; }
+.scde-report .kpi-value { font-size: 22px; font-family: var(--font-mono); font-weight: 600; color: var(--brand-primary); margin-top: 2px; }
+"""
+
+
+def _money_cell(v: float | int | None) -> str:
+    s = fmt_money(v)
+    cls = " neg" if (v is not None and v < 0) else ""
+    return f'<td class="num{cls}">{html.escape(s)}</td>'
+
+
+def _pp_cell(v: float | int | None) -> str:
+    return _money_cell(v)
+
+
+def _stream_class(bucket: str) -> str:
+    if bucket.startswith("Local"):
+        return "stream-local"
+    if "State" in bucket:
+        return "stream-state"
+    if "Federal" in bucket:
+        return "stream-federal"
+    return ""
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Detail report
+# ──────────────────────────────────────────────────────────────────────
+
+
+def render_detail(data: dict[str, Any]) -> str:
+    d = data["district"]
+    fy = data["fy"]
+    items = data["items"]
+    hc = data["headcount"]
+    state_sceis = data["sceis_state_total"]
+    federal_sceis = data["sceis_federal_total"]
+
+    if not data["reported"]:
+        body = f"""
+        <div class="kpi-row">
+          <div class="kpi"><div class="kpi-label">SCEIS State Total</div><div class="kpi-value">{html.escape(fmt_money(state_sceis))}</div></div>
+          <div class="kpi"><div class="kpi-label">SCEIS Federal Total</div><div class="kpi-value">{html.escape(fmt_money(federal_sceis))}</div></div>
+          <div class="kpi"><div class="kpi-label">Headcount (SY{fy})</div><div class="kpi-value">{html.escape(fmt_int(hc))}</div></div>
+        </div>
+        <p class="badge danger">Not reported by district in LEA self-report. SCEIS state-side totals shown above.</p>
+        """
+    else:
+        # Group items by Stream → Category for nesting
+        grouped: dict[str, dict[str, list[dict]]] = {}
+        for it in items:
+            stream = it["stream"] or "Uncategorized"
+            cat = it["category"] or "—"
+            grouped.setdefault(stream, {}).setdefault(cat, []).append(it)
+
+        rows_html = []
+        grand_total = 0.0
+        for stream in ("Local", "State", "Federal", "Uncategorized"):
+            if stream not in grouped:
+                continue
+            stream_total = 0.0
+            for cat, leaves in grouped[stream].items():
+                for it in leaves:
+                    grand_total += it["amount"]
+                    stream_total += it["amount"]
+                    cls = _stream_class((it["bucket"] or stream))
+                    desc = html.escape(it["full_name"] or it["display_title"] or "")
+                    code = html.escape(it["code"])
+                    cat_label = html.escape(cat)
+                    title_attr = html.escape((it["short_description"] or "")[:200])
+                    rows_html.append(
+                        f'<tr class="{cls}">'
+                        f'<td><span class="badge info" title="{title_attr}">{code}</span></td>'
+                        f'<td>{cat_label}</td>'
+                        f'<td>{desc}</td>'
+                        f'{_money_cell(it["amount"])}'
+                        f'</tr>'
+                    )
+                rows_html.append(
+                    f'<tr class="subtotal"><td colspan="3">{html.escape(stream)} subtotal</td>'
+                    f'{_money_cell(stream_total)}</tr>'
+                ) if False else None  # subtotals per stream below instead
+            rows_html.append(
+                f'<tr class="subtotal"><td colspan="3">Subtotal — {html.escape(stream)} (LEA)</td>'
+                f'{_money_cell(stream_total)}</tr>'
+            )
+
+        rows_html.append(
+            f'<tr class="statewide"><td colspan="3">Grand Total (LEA self-report)</td>'
+            f'{_money_cell(grand_total)}</tr>'
+        )
+
+        body = f"""
+        <div class="kpi-row">
+          <div class="kpi"><div class="kpi-label">Grand Total (LEA)</div><div class="kpi-value">{html.escape(fmt_money(grand_total))}</div></div>
+          <div class="kpi"><div class="kpi-label">SCEIS State Total</div><div class="kpi-value">{html.escape(fmt_money(state_sceis))}</div></div>
+          <div class="kpi"><div class="kpi-label">SCEIS Federal Total</div><div class="kpi-value">{html.escape(fmt_money(federal_sceis))}</div></div>
+          <div class="kpi"><div class="kpi-label">Headcount (SY{fy})</div><div class="kpi-value">{html.escape(fmt_int(hc))}</div></div>
+          <div class="kpi"><div class="kpi-label">Per-Pupil (LEA)</div><div class="kpi-value">{html.escape(fmt_pp(grand_total/hc) if hc else 'n/a')}</div></div>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Code</th><th>Category</th><th>Description</th><th class="num">Amount</th></tr>
+          </thead>
+          <tbody>
+            {''.join(r for r in rows_html if r)}
+          </tbody>
+        </table>
+        """
+
+    footer = _methodology_footer(
+        single_district=True,
+        notes=[
+            "LEA self-report rows are filtered to <code>Reported_Flag = TRUE</code>.",
+            "SCEIS State Total and Federal Total come from <code>vw_sceis_fi_payments_classified</code> and may not equal the LEA-sourced subtotals (no GL→Revenue_Code bridge yet).",
+            f"Headcount denominator is <code>lea_headcounts.Total_Active_Enrollment</code> for SY {fy} (latest Report_Cycle).",
+        ],
+    )
+
+    return f"""
+    <div class="scde-report">
+      <h1>{html.escape(d['name'])} — Detail Revenue, FY{fy}</h1>
+      <div class="meta">District {html.escape(d['id'])} · generated {date.today().isoformat()}</div>
+      {body}
+      {footer}
+    </div>
+    """
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Single-FY comparison
+# ──────────────────────────────────────────────────────────────────────
+
+
+def render_compare_table(data: dict[str, Any]) -> str:
+    fy = data["fy"]
+    rows = data["rows"]
+    buckets = data["buckets"]
+    sw = data["statewide"]
+
+    head = (
+        '<tr><th>District</th><th class="num">Headcount</th>'
+        + ''.join(f'<th class="num">{html.escape(b)}</th>' for b in buckets)
+        + '<th class="num">Total</th><th class="num">Per Pupil</th></tr>'
+    )
+
+    body_rows = []
+    for r in rows:
+        hc = r["headcount"]
+        cells = [
+            f'<td>{html.escape(r["district_name"] or r["district_id"])}</td>',
+            f'<td class="num">{fmt_int(hc)}</td>',
+        ]
+        for b in buckets:
+            cells.append(_money_cell(r["buckets"][b]))
+        cells.append(_money_cell(r["grand_total"]))
+        cells.append(_pp_cell(r["per_pupil_total"]))
+        body_rows.append(f'<tr>{"".join(cells)}</tr>')
+
+    sw_cells = [
+        '<td>South Carolina (weighted)</td>',
+        f'<td class="num">{fmt_int(sw["headcount"])}</td>',
+    ]
+    for b in buckets:
+        sw_cells.append(_money_cell(sw["buckets"][b]))
+    sw_cells.append(_money_cell(sw["grand_total"]))
+    sw_cells.append(_pp_cell(sw["per_pupil_total"]))
+    body_rows.append(f'<tr class="statewide">{"".join(sw_cells)}</tr>')
+
+    footer = _methodology_footer(
+        single_district=False,
+        notes=[
+            "LEA-sourced sub-buckets are filtered to <code>Reported_Flag = TRUE</code>.",
+            "State and Federal totals come from SCEIS (<code>vw_sceis_fi_payments_classified</code>); LEA-sourced State/Federal may not equal these (no GL→Revenue_Code bridge yet).",
+            "Statewide totals use weighted averages (sum of dollars / sum of pupils), not arithmetic means.",
+        ],
+    )
+
+    return f"""
+    <div class="scde-report">
+      <h1>District Revenue Comparison — FY{fy}</h1>
+      <div class="meta">All districts · generated {date.today().isoformat()}</div>
+      <table>
+        <thead>{head}</thead>
+        <tbody>{''.join(body_rows)}</tbody>
+      </table>
+      {footer}
+    </div>
+    """
+
+
+def render_compare_chart(data: dict[str, Any]) -> str:
+    """Stacked-bar view of compare-table data. SVG; no library."""
+    fy = data["fy"]
+    rows = data["rows"]
+    buckets = data["buckets"]
+    # Order rows by per-pupil total desc, drop districts with no headcount
+    plot_rows = [r for r in rows if r.get("per_pupil_total") is not None]
+    plot_rows.sort(key=lambda r: r["per_pupil_total"] or 0, reverse=True)
+
+    if not plot_rows:
+        return f'<div class="scde-report"><h1>FY{fy} Comparison Chart</h1><p>No data.</p></div>'
+
+    # Categorical colors from SCDE tokens
+    palette = ["#234058", "#56B4E9", "#009E73", "#666666", "#F1BA55", "#CC79A7"]
+    color_for = {b: palette[i % len(palette)] for i, b in enumerate(buckets)}
+
+    max_pp = max((r["per_pupil_total"] or 0) for r in plot_rows)
+    bar_h = 14
+    gap = 4
+    label_w = 240
+    chart_w = 700
+    h = (bar_h + gap) * len(plot_rows) + 60
+    w = label_w + chart_w + 80
+
+    bars_svg = []
+    for i, r in enumerate(plot_rows):
+        y = 40 + i * (bar_h + gap)
+        x0 = label_w
+        bars_svg.append(
+            f'<text x="{label_w-8}" y="{y+bar_h-3}" text-anchor="end" font-size="11" fill="#2F3D4C">{html.escape(r["district_name"][:30])}</text>'
+        )
+        for b in buckets:
+            v_pp = (r["buckets"][b] / r["headcount"]) if r["headcount"] else 0
+            seg_w = (v_pp / max_pp) * chart_w if max_pp > 0 else 0
+            if seg_w > 0:
+                bars_svg.append(
+                    f'<rect x="{x0:.1f}" y="{y}" width="{seg_w:.1f}" height="{bar_h}" fill="{color_for[b]}"><title>{html.escape(b)}: {fmt_money(v_pp)}/pupil</title></rect>'
+                )
+                x0 += seg_w
+        # Total label at end of bar
+        bars_svg.append(
+            f'<text x="{x0+4:.1f}" y="{y+bar_h-3}" font-size="10" font-family="JetBrains Mono,monospace" fill="#2F3D4C">{html.escape(fmt_money(r["per_pupil_total"]))}</text>'
+        )
+
+    # Legend
+    legend = []
+    for i, b in enumerate(buckets):
+        lx = 8 + i * 180
+        legend.append(
+            f'<rect x="{lx}" y="{h-30}" width="12" height="12" fill="{color_for[b]}"/>'
+            f'<text x="{lx+18}" y="{h-20}" font-size="11" fill="#2F3D4C">{html.escape(b)}</text>'
+        )
+
+    footer = _methodology_footer(
+        single_district=False,
+        notes=[
+            "Bars are revenue per pupil (weighted by headcount).",
+            "State and Federal segments use SCEIS; Local sub-buckets use LEA self-report (filtered Reported_Flag=TRUE).",
+            "Sorted descending by total per-pupil revenue.",
+        ],
+    )
+
+    return f"""
+    <div class="scde-report">
+      <h1>FY{fy} District Revenue Comparison</h1>
+      <div class="meta">Per-pupil, all reporting districts · generated {date.today().isoformat()}</div>
+      <svg viewBox="0 0 {w} {h}" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:1100px">
+        {''.join(bars_svg)}
+        {''.join(legend)}
+      </svg>
+      {footer}
+    </div>
+    """
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Multi-FY for one district
+# ──────────────────────────────────────────────────────────────────────
+
+
+def render_multi_fy(data: dict[str, Any]) -> str:
+    d = data["district"]
+    rows = data["rows"]
+    buckets = data["buckets"]
+
+    head = (
+        '<tr><th>FY</th><th class="num">Headcount</th>'
+        + ''.join(f'<th class="num">{html.escape(b)}</th>' for b in buckets)
+        + '<th class="num">Total</th><th class="num">Per Pupil</th></tr>'
+    )
+    body_rows = []
+    for r in rows:
+        cells = [
+            f'<td>FY{r["fy"]}</td>',
+            f'<td class="num">{fmt_int(r["headcount"])}</td>',
+        ]
+        for b in buckets:
+            cells.append(_money_cell(r["buckets"][b]))
+        cells.append(_money_cell(r["grand_total"]))
+        cells.append(_pp_cell(r["per_pupil_total"]))
+        cls = "" if r["reported"] else ' class="subtotal"'
+        body_rows.append(f'<tr{cls}>{"".join(cells)}</tr>')
+
+    # YoY chart — simple line per bucket
+    chart_svg = _multi_fy_chart_svg(rows, buckets)
+
+    footer = _methodology_footer(
+        single_district=True,
+        notes=[
+            "Each row = one FY. Buckets and per-pupil rules match the single-FY comparison.",
+            "Rows where the district did not submit LEA data (Reported_Flag=FALSE everywhere) are flagged.",
+        ],
+    )
+
+    return f"""
+    <div class="scde-report">
+      <h1>{html.escape(d['name'])} — Multi-Year Revenue</h1>
+      <div class="meta">District {html.escape(d['id'])} · generated {date.today().isoformat()}</div>
+      <table>
+        <thead>{head}</thead>
+        <tbody>{''.join(body_rows)}</tbody>
+      </table>
+      <h2>Per-pupil trend</h2>
+      {chart_svg}
+      {footer}
+    </div>
+    """
+
+
+def _multi_fy_chart_svg(rows: list[dict], buckets: list[str]) -> str:
+    if not rows:
+        return "<p>No data.</p>"
+    palette = ["#234058", "#56B4E9", "#009E73", "#666666", "#F1BA55", "#CC79A7"]
+    w, h = 720, 280
+    pad_l, pad_r, pad_t, pad_b = 60, 16, 20, 36
+
+    fys = [r["fy"] for r in rows]
+    if not fys:
+        return "<p>No data.</p>"
+    x_step = (w - pad_l - pad_r) / max(1, len(fys) - 1) if len(fys) > 1 else 0
+    max_pp = max(
+        (r["per_pupil"][b] or 0) for r in rows for b in buckets if r["per_pupil"]
+    ) or 1
+    y_scale = (h - pad_t - pad_b) / max_pp
+
+    def x_for(i): return pad_l + i * x_step if len(fys) > 1 else (w - pad_l - pad_r) / 2 + pad_l
+    def y_for(v): return h - pad_b - (v or 0) * y_scale
+
+    grid = [f'<line x1="{pad_l}" y1="{h-pad_b}" x2="{w-pad_r}" y2="{h-pad_b}" stroke="#CBD5E0"/>']
+    for i, fy in enumerate(fys):
+        x = x_for(i)
+        grid.append(f'<text x="{x}" y="{h-pad_b+14}" font-size="11" text-anchor="middle" fill="#43718B">FY{fy}</text>')
+    # Y-axis ticks (4)
+    for k in range(5):
+        v = max_pp * k / 4
+        y = y_for(v)
+        grid.append(
+            f'<line x1="{pad_l}" y1="{y}" x2="{w-pad_r}" y2="{y}" stroke="#CBD5E0" stroke-dasharray="2 4"/>'
+            f'<text x="{pad_l-6}" y="{y+3}" text-anchor="end" font-size="10" font-family="JetBrains Mono,monospace" fill="#43718B">{html.escape(fmt_money(v))}</text>'
+        )
+
+    lines = []
+    legend_items = []
+    for bi, b in enumerate(buckets):
+        col = palette[bi % len(palette)]
+        pts = []
+        for i, r in enumerate(rows):
+            v = (r["per_pupil"] or {}).get(b, 0) or 0
+            pts.append(f"{x_for(i):.1f},{y_for(v):.1f}")
+        if pts:
+            lines.append(f'<polyline fill="none" stroke="{col}" stroke-width="2" points="{" ".join(pts)}"/>')
+            for p in pts:
+                x, y = p.split(",")
+                lines.append(f'<circle cx="{x}" cy="{y}" r="3" fill="{col}"/>')
+        legend_items.append(
+            f'<g transform="translate({8 + bi*120},6)">'
+            f'<rect width="10" height="10" fill="{col}"/>'
+            f'<text x="14" y="9" font-size="10" fill="#2F3D4C">{html.escape(b[:18])}</text>'
+            f'</g>'
+        )
+
+    return f'<svg viewBox="0 0 {w} {h+40}" width="100%" style="max-width:900px">{"".join(grid)}{"".join(lines)}<g transform="translate(0,{h+8})">{"".join(legend_items)}</g></svg>'
+
+
+# ──────────────────────────────────────────────────────────────────────
+# YTD monthly
+# ──────────────────────────────────────────────────────────────────────
+
+
+def render_ytd_chart(data: dict[str, Any]) -> str:
+    d = data["district"]
+    fy = data["fy"]
+    rows = data["rows"]
+
+    if not rows:
+        return f'<div class="scde-report"><h1>{html.escape(d["name"])} — FY{fy} YTD</h1><p>No SCEIS data for this district + FY.</p></div>'
+
+    palette = {"State": "#234058", "Federal": "#CC79A7", "Other": "#666666"}
+    streams = sorted({s for r in rows for s in r["streams"]})
+
+    w, h = 760, 320
+    pad_l, pad_r, pad_t, pad_b = 70, 16, 20, 60
+    n = len(rows)
+    bar_w = (w - pad_l - pad_r) / n * 0.7
+    step = (w - pad_l - pad_r) / n
+
+    max_total = max((r["total"] for r in rows), default=1) or 1
+    y_scale = (h - pad_t - pad_b) / max_total
+    def y_for(v): return h - pad_b - (v or 0) * y_scale
+
+    bars = []
+    for i, r in enumerate(rows):
+        x = pad_l + i * step + (step - bar_w) / 2
+        y_cursor = h - pad_b
+        for s in streams:
+            v = r["streams"].get(s, 0) or 0
+            seg_h = v * y_scale
+            color = palette.get(s, "#999999")
+            bars.append(
+                f'<rect x="{x:.1f}" y="{(y_cursor-seg_h):.1f}" width="{bar_w:.1f}" height="{seg_h:.1f}" fill="{color}">'
+                f'<title>{html.escape(s)} {r["year"]}-{r["month"]:02d}: {fmt_money(v)}</title></rect>'
+            )
+            y_cursor -= seg_h
+        # Month label
+        bars.append(
+            f'<text x="{x+bar_w/2:.1f}" y="{h-pad_b+14}" font-size="10" text-anchor="middle" fill="#43718B">{r["year"]}-{r["month"]:02d}</text>'
+        )
+        bars.append(
+            f'<text x="{x+bar_w/2:.1f}" y="{(y_for(r["total"])-3):.1f}" font-size="9" text-anchor="middle" font-family="JetBrains Mono,monospace" fill="#2F3D4C">{html.escape(fmt_money(r["total"]))}</text>'
+        )
+
+    # Y-axis ticks
+    grid = []
+    for k in range(5):
+        v = max_total * k / 4
+        y = y_for(v)
+        grid.append(
+            f'<line x1="{pad_l}" y1="{y}" x2="{w-pad_r}" y2="{y}" stroke="#CBD5E0" stroke-dasharray="2 4"/>'
+            f'<text x="{pad_l-6}" y="{y+3}" text-anchor="end" font-size="10" font-family="JetBrains Mono,monospace" fill="#43718B">{html.escape(fmt_money(v))}</text>'
+        )
+
+    legend = "".join(
+        f'<g transform="translate({8 + i*100},6)">'
+        f'<rect width="10" height="10" fill="{palette.get(s,"#999")}"/>'
+        f'<text x="14" y="9" font-size="11" fill="#2F3D4C">{html.escape(s)}</text>'
+        f'</g>'
+        for i, s in enumerate(streams)
+    )
+
+    grand = sum(r["total"] for r in rows)
+    txn_count = sum(r["count"] for r in rows)
+
+    footer = _methodology_footer(
+        single_district=True,
+        notes=[
+            f"Source: <code>vw_sceis_fi_payments_classified</code> · {html.escape(str(data.get('data_through','')))} latest posting date",
+            "State / Federal split is via the classification view's regex rules (~22 patterns).",
+            "Months shown are calendar months; SC fiscal year runs July 1 – June 30.",
+        ],
+    )
+
+    return f"""
+    <div class="scde-report">
+      <h1>{html.escape(d['name'])} — FY{fy} Year-to-Date by Month</h1>
+      <div class="meta">District {html.escape(d['id'])} · {fmt_int(txn_count)} SCEIS transactions · grand total {html.escape(fmt_money(grand))}</div>
+      <svg viewBox="0 0 {w} {h+40}" width="100%" style="max-width:1000px">
+        {''.join(grid)}
+        {''.join(bars)}
+        <g transform="translate(0,{h+10})">{legend}</g>
+      </svg>
+      {footer}
+    </div>
+    """
+
+
+def render_ytd_detail(data: dict[str, Any]) -> str:
+    d = data["district"]
+    fy = data["fy"]
+    rows = data["rows"]
+
+    if not rows:
+        return f'<div class="scde-report"><h1>{html.escape(d["name"])} — FY{fy} YTD Detail</h1><p>No SCEIS data.</p></div>'
+
+    streams = sorted({s for r in rows for s in r["streams"]})
+    head = (
+        '<tr><th>Month</th><th class="num">Txns</th>'
+        + ''.join(f'<th class="num">{html.escape(s)}</th>' for s in streams)
+        + '<th class="num">Total</th></tr>'
+    )
+    body = []
+    totals_by_stream = {s: 0.0 for s in streams}
+    grand = 0.0
+    txn_total = 0
+    for r in rows:
+        cells = [
+            f'<td>{r["year"]}-{r["month"]:02d}</td>',
+            f'<td class="num">{fmt_int(r["count"])}</td>',
+        ]
+        for s in streams:
+            v = r["streams"].get(s, 0) or 0
+            cells.append(_money_cell(v))
+            totals_by_stream[s] += v
+        cells.append(_money_cell(r["total"]))
+        body.append(f'<tr>{"".join(cells)}</tr>')
+        grand += r["total"]
+        txn_total += r["count"]
+
+    foot_cells = [
+        '<td>Total</td>',
+        f'<td class="num">{fmt_int(txn_total)}</td>',
+    ]
+    for s in streams:
+        foot_cells.append(_money_cell(totals_by_stream[s]))
+    foot_cells.append(_money_cell(grand))
+    body.append(f'<tr class="statewide">{"".join(foot_cells)}</tr>')
+
+    footer = _methodology_footer(
+        single_district=True,
+        notes=[
+            f"Source: <code>vw_sceis_fi_payments_classified</code> · data through {html.escape(str(data.get('data_through','')))}",
+        ],
+    )
+
+    return f"""
+    <div class="scde-report">
+      <h1>{html.escape(d['name'])} — FY{fy} YTD Monthly Detail</h1>
+      <div class="meta">District {html.escape(d['id'])} · generated {date.today().isoformat()}</div>
+      <table>
+        <thead>{head}</thead>
+        <tbody>{''.join(body)}</tbody>
+      </table>
+      {footer}
+    </div>
+    """
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Methodology footer
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _methodology_footer(*, single_district: bool, notes: list[str]) -> str:
+    lis = "".join(f"<p>· {n}</p>" for n in notes)
+    return f"""
+    <div class="footer">
+      <strong>Methodology</strong>
+      {lis}
+      <p>· Excluded entities (special schools / state-agency schools): 5205, 5207, 5208, 5209, 5364, 5395 (per <code>lookup_district_exclusions</code>).</p>
+      <p>· Negatives are rendered with accounting parentheses, e.g. $(1,234).</p>
+    </div>
+    """

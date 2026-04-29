@@ -1,0 +1,116 @@
+"""SCDE Finance Dashboard — local FastAPI app with menu-driven report builder."""
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from app import queries as q
+from app import render as r
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger("scde.dashboard")
+
+app = FastAPI(title="SCDE Finance Dashboard")
+
+
+@app.get("/")
+async def root() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/health")
+async def health() -> dict:
+    return {
+        "status": "ok",
+        "db_exists": (PROJECT_ROOT / "db" / "scde.duckdb").exists(),
+        "lea_fys": q.list_fiscal_years_lea(),
+        "sceis_fys": q.list_fiscal_years_sceis(),
+        "current_sceis_fy": q.current_sceis_fy(),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Metadata
+# ──────────────────────────────────────────────────────────────────────
+
+
+@app.get("/api/districts")
+async def api_districts() -> JSONResponse:
+    return JSONResponse(q.list_districts())
+
+
+@app.get("/api/years")
+async def api_years() -> JSONResponse:
+    return JSONResponse({
+        "lea": q.list_fiscal_years_lea(),
+        "sceis": q.list_fiscal_years_sceis(),
+        "current_sceis": q.current_sceis_fy(),
+    })
+
+
+@app.get("/api/map")
+async def api_map(fy: int = Query(...)) -> JSONResponse:
+    if fy not in q.list_fiscal_years_lea():
+        raise HTTPException(400, f"FY{fy} not available; got {q.list_fiscal_years_lea()}")
+    return JSONResponse(q.get_map_features(fy))
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Reports — return rendered HTML fragments
+# ──────────────────────────────────────────────────────────────────────
+
+
+@app.get("/api/report/detail")
+async def api_detail(district: str = Query(...), fy: int = Query(...)) -> HTMLResponse:
+    data = q.get_detail_rows(district, fy)
+    return HTMLResponse(r.render_detail(data))
+
+
+@app.get("/api/report/compare")
+async def api_compare(fy: int = Query(...), mode: str = Query("table")) -> HTMLResponse:
+    data = q.get_compare_table(fy)
+    if mode == "chart":
+        return HTMLResponse(r.render_compare_chart(data))
+    return HTMLResponse(r.render_compare_table(data))
+
+
+@app.get("/api/report/multi-fy")
+async def api_multi_fy(district: str = Query(...)) -> HTMLResponse:
+    data = q.get_multi_fy_district(district)
+    return HTMLResponse(r.render_multi_fy(data))
+
+
+@app.get("/api/ytd/chart")
+async def api_ytd_chart(district: str = Query(...), fy: int | None = None) -> HTMLResponse:
+    data = q.get_ytd_monthly(district, fy)
+    return HTMLResponse(r.render_ytd_chart(data))
+
+
+@app.get("/api/ytd/detail")
+async def api_ytd_detail(district: str = Query(...), fy: int | None = None) -> HTMLResponse:
+    data = q.get_ytd_monthly(district, fy)
+    return HTMLResponse(r.render_ytd_detail(data))
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Static
+# ──────────────────────────────────────────────────────────────────────
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+def main() -> None:
+    import uvicorn
+
+    uvicorn.run("app.server:app", host="127.0.0.1", port=8765, reload=False, log_level="info")
+
+
+if __name__ == "__main__":
+    main()

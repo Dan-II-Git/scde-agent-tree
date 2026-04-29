@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SCDE Finance Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<link rel="stylesheet" href="/static/dashboard.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span class="brand-text">SCDE Finance Dashboard</span>
+  </div>
+  <div class="status" id="status">checking…</div>
+</header>
+
+<main class="grid">
+  <section class="panel map-panel">
+    <header class="panel-header">
+      <h2>SC Districts</h2>
+      <label class="control">
+        FY
+        <select id="map-fy"></select>
+      </label>
+    </header>
+    <div id="map"></div>
+    <div class="legend" id="map-legend"></div>
+  </section>
+
+  <aside class="panel controls-panel">
+    <div class="control-card">
+      <h3>Detail Report</h3>
+      <p class="control-hint">Single district, single FY. LEA self-report + SCEIS state-side totals.</p>
+      <label>District<select id="detail-district"></select></label>
+      <label>FY<select id="detail-fy"></select></label>
+      <button data-action="detail">Generate</button>
+    </div>
+
+    <div class="control-card">
+      <h3>Single-FY Comparison</h3>
+      <p class="control-hint">All districts × revenue buckets, with statewide weighted average.</p>
+      <label>FY<select id="compare-fy"></select></label>
+      <fieldset class="radio-group">
+        <label><input type="radio" name="compare-mode" value="table" checked> Table</label>
+        <label><input type="radio" name="compare-mode" value="chart"> Chart</label>
+      </fieldset>
+      <button data-action="compare">Generate</button>
+    </div>
+
+    <div class="control-card">
+      <h3>Multi-FY by District</h3>
+      <p class="control-hint">One district across all available fiscal years, with per-pupil trend.</p>
+      <label>District<select id="multify-district"></select></label>
+      <button data-action="multi-fy">Generate</button>
+    </div>
+
+    <div class="control-card">
+      <h3>Year-to-Date by Month</h3>
+      <p class="control-hint">SCEIS payments, current FY, monthly. Chart or detailed table.</p>
+      <label>District<select id="ytd-district"></select></label>
+      <label>FY<select id="ytd-fy"></select></label>
+      <div class="button-row">
+        <button data-action="ytd-chart">Chart</button>
+        <button data-action="ytd-detail">Detail</button>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<section class="output-panel" id="output">
+  <div class="output-placeholder">
+    Pick from the menus above (or click a district on the map) to generate a report.
+  </div>
+</section>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="/static/dashboard.js" type="module"></script>
+</body>
+</html>
