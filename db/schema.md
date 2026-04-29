@@ -72,7 +72,13 @@ after either changes.
   - `(4310, Revenue)` — "Title I, Section 1003(A) — School Improvement"
   - `(420, Function)` — "Transfer to General Fund (Exclude Indirect Cost)"
 
-- `code_district_funding_streams` (REV_Code PK, Stream_Type, Rollup_Level, ...)
+- `code_district_funding_streams` (REV_Code PK, Stream_Type, Rollup_Level, ...,
+  `Allocation_Basis` VARCHAR — allocation method from the State sheet "Allocation Data"
+  column: `'PowerSchool ADM'`, `'PS ADM'`, `'Categorical'`, `'District FTEs'`, or NULL
+  (NULL is correct for Federal/Local rows). Used by `funding-projections` to route
+  each REV_Code to the SAC formula or trend method;
+  `Sunset_Note` VARCHAR — notes from the inventory for time-limited streams, e.g.
+  `"Closed, last paid FY23"`. Both columns added for the funding-projections agent.)
 - `code_historical_revenue_codes` (Code, Type PK, Full_Name, Display_Name,
   Short_Description, Full_Description, Last_Active_FY, Program_Authority)
 
@@ -98,6 +104,14 @@ after either changes.
 
 - `code_handbook_definitions` (Term PK, Definition, Category)
 
+### policy_*  — owned by `code-catalog`
+- `policy_rate_assumptions` (FY, parameter, scenario PK — composite; value DECIMAL(18,4),
+  source, notes) — annual per-pupil rate inputs for funding-projection formulas. Seeded
+  manually from the SC Appropriations Act. Scenarios: `'baseline'` (v1), with future
+  scenarios (`'flat_funding'`, `'bsc_+3pct'`) anticipated. The `funding-projections`
+  agent reads this table when computing SAC formula projections. Do not auto-populate
+  from the projection pipeline; changes require a `code-catalog` agent task.
+
 ### lookup_*  — owned by `code-catalog`
 - `lookup_gl_account` (GL_Account PK, SAP_Category, Handbook_Code FK, Handbook_Type)
 
@@ -107,6 +121,16 @@ after either changes.
    `report-district-revenue`. Joins lea_revenues to
    code_district_funding_streams + code_accounting_codes; rebuilt
    when either source changes.
+- `mart_funding_projections` (District_ID, FY, Revenue_Code, Scenario PK —
+   composite; Stream_Type, Allocation_Basis, Amount, Lower_80, Upper_80,
+   Method, Built_At) — owned by `funding-projections` agent (not yet
+   implemented). Point estimates and 80% prediction-interval bounds per
+   district + revenue code + projection scenario. Method values:
+   `'formula_sac'` (SAC per-WPU formula using policy_rate_assumptions),
+   `'trend_ols'` (ordinary least-squares trend), `'sunset_zero'` (forced
+   to zero after sunset year from code_district_funding_streams.Sunset_Note),
+   `'insufficient_history'` (fewer than 3 data points). Rebuilt by the
+   agent's pipeline SQL; do not manually INSERT.
 
 ## Schema changes
 

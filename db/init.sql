@@ -44,12 +44,35 @@ CREATE TABLE IF NOT EXISTS code_district_funding_streams (
     Display_Title       VARCHAR,
     Program_Office      VARCHAR,
     Source_System       VARCHAR
+    -- Allocation_Basis and Sunset_Note added below via ALTER TABLE
 );
+
+-- Added for funding-projections agent: Allocation_Basis routes each REV_Code
+-- to the correct projection method; Sunset_Note forces projected amount to
+-- zero after the named fiscal year. NULL is correct for Federal/Local rows
+-- that have no Allocation Data column in the source inventory.
+ALTER TABLE code_district_funding_streams
+    ADD COLUMN IF NOT EXISTS Allocation_Basis VARCHAR;  -- 'PowerSchool ADM' | 'PS ADM' | 'Categorical' | 'District FTEs' | NULL
+ALTER TABLE code_district_funding_streams
+    ADD COLUMN IF NOT EXISTS Sunset_Note VARCHAR;       -- e.g. 'Closed, last paid FY23'; NULL when no sunset applies
 
 CREATE TABLE IF NOT EXISTS code_handbook_definitions (
     Term                VARCHAR PRIMARY KEY,
     Definition          VARCHAR,
     Category            VARCHAR
+);
+
+-- Annual policy-rate inputs for funding-projection formulas.
+-- Owned by code-catalog agent. Seeded manually from the SC Appropriations Act;
+-- do not auto-populate from the projection pipeline.
+CREATE TABLE IF NOT EXISTS policy_rate_assumptions (
+    FY                  SMALLINT NOT NULL,
+    parameter           VARCHAR  NOT NULL,      -- e.g. 'sac_base_per_wpu', 'sac_health_insurance_per_wpu'
+    scenario            VARCHAR  NOT NULL,      -- 'baseline' for v1; future: 'flat_funding', 'bsc_+3pct'
+    value               DECIMAL(18, 4) NOT NULL, -- per-pupil dollars; 4 decimals for fractional rates
+    source              VARCHAR,                -- e.g. 'SC Appropriations Act 2024-25, Part IB §1A.1'
+    notes               VARCHAR,
+    PRIMARY KEY (FY, parameter, scenario)
 );
 
 CREATE TABLE IF NOT EXISTS lookup_gl_account (
@@ -216,7 +239,26 @@ CREATE TABLE IF NOT EXISTS lea_wpu_allocations (
 -- Marts (populated by report agents as needed)
 -- ============================================================
 
--- Reserved namespace; populated lazily.
+-- mart_district_revenue_rollup is populated lazily by report-district-revenue.
+
+-- Funding-projection output mart. Owned by the funding-projections agent
+-- (not yet implemented). Rebuilt by that agent's pipeline SQL. Stores
+-- point estimates and 80% prediction-interval bounds per district + revenue
+-- code + scenario. PRIMARY KEY enforces one row per district/FY/code/scenario.
+CREATE TABLE IF NOT EXISTS mart_funding_projections (
+    District_ID         VARCHAR      NOT NULL,
+    FY                  SMALLINT     NOT NULL,
+    Revenue_Code        VARCHAR      NOT NULL,
+    Stream_Type         VARCHAR,                    -- 'State' | 'Federal' | 'Local'
+    Allocation_Basis    VARCHAR,                    -- copied from code_district_funding_streams.Allocation_Basis
+    Amount              DECIMAL(18, 2),             -- point estimate
+    Lower_80            DECIMAL(18, 2),             -- 80% prediction-interval lower bound
+    Upper_80            DECIMAL(18, 2),             -- 80% prediction-interval upper bound
+    Method              VARCHAR,                    -- 'formula_sac' | 'trend_ols' | 'sunset_zero' | 'insufficient_history'
+    Scenario            VARCHAR      NOT NULL,      -- matches policy_rate_assumptions.scenario; 'baseline' for v1
+    Built_At            TIMESTAMP,
+    PRIMARY KEY (District_ID, FY, Revenue_Code, Scenario)
+);
 
 -- ============================================================
 -- Seed data — lookup_sceis_program_classification

@@ -52,7 +52,9 @@
         "Category": "Bucket name used in comparison reports (Taxes & Fees, District Services, Investments, State Aid to Classrooms, Property Tax Reimbursement, etc.).",
         "Display_Title": "Short title for dashboards.",
         "Program_Office": "Owning SCDE office (state sheet only).",
-        "Source_System": "Originating system: LARS, SCEIS, PowerSchool ADM, etc."
+        "Source_System": "Originating system: LARS, SCEIS, PowerSchool ADM, etc.",
+        "Allocation_Basis": "Allocation method for the stream: 'PowerSchool ADM', 'PS ADM', 'Categorical', or 'District FTEs'. Sourced from the 'Allocation Data' column of the State sheet in District_Funding_Stream_Inventory.xlsx. NULL for Federal and Local sheet rows (column not present on those sheets). Used by funding-projections agent to route each REV_Code to the correct projection method.",
+        "Sunset_Note": "Free-text note from the inventory flagging time-limited or closed streams, e.g. 'Closed, last paid FY23'. Used by funding-projections agent to force projected amount to zero after the sunset year. NULL when no sunset applies."
       }
     },
     "code_historical_revenue_codes": {
@@ -78,6 +80,19 @@
         "Term": "Defined term as it appears in the handbook glossary.",
         "Definition": "Full definition narrative.",
         "Category": "Revenue / Function / Object / Fund / General — the section the term lives in."
+      }
+    },
+    "policy_rate_assumptions": {
+      "purpose": "Annual policy inputs for funding-projection formulas. Stores per-pupil rate parameters (e.g., SAC base per WPU, employer contribution per WPU) keyed by fiscal year and scenario. Seeded manually from the SC Appropriations Act; the funding-projections agent reads these rates when computing SAC formula projections.",
+      "stability": "stable",
+      "owner_agent": "code-catalog",
+      "columns": {
+        "FY": "Fiscal year the rate is effective for (4-digit ending year, e.g. 2025).",
+        "parameter": "Rate parameter name, e.g. 'sac_base_per_wpu', 'sac_health_insurance_per_wpu', 'sac_employer_contribution_per_wpu'.",
+        "scenario": "Projection scenario name. 'baseline' is the default; future scenarios include 'flat_funding', 'bsc_+3pct'.",
+        "value": "Rate value in per-pupil dollars, stored to 4 decimal places to accommodate fractional rates.",
+        "source": "Statutory or regulatory citation for the rate, e.g. 'SC Appropriations Act 2024-25, Part IB §1A.1'.",
+        "notes": "Optional supplementary notes about the parameter or any adjustments made."
       }
     },
     "lookup_gl_account": {
@@ -318,6 +333,24 @@
         "Display_Title": "Short label for dashboards.",
         "Rollup_Level": "1-4 hierarchy depth for detail mode rendering.",
         "Amount": "Annual revenue dollars (signed; revenues are positive)."
+      }
+    },
+    "mart_funding_projections": {
+      "purpose": "Funding projections by district, revenue code, and scenario. Owned by the funding-projections agent (not yet implemented). Rebuilt by that agent's pipeline SQL. Stores point estimates and 80% prediction-interval bounds from either the SAC formula method or trend-based OLS regression.",
+      "stability": "derived",
+      "owner_agent": "funding-projections",
+      "columns": {
+        "District_ID": "Joins to dim_district.District_ID.",
+        "FY": "Projected fiscal year (4-digit ending year).",
+        "Revenue_Code": "Revenue code being projected; joins to code_accounting_codes (Type='Revenue') and code_district_funding_streams.",
+        "Stream_Type": "'State', 'Federal', or 'Local' — copied from code_district_funding_streams.Stream_Type.",
+        "Allocation_Basis": "Allocation method copied from code_district_funding_streams.Allocation_Basis. Determines which projection method was applied.",
+        "Amount": "Point-estimate projected amount in dollars.",
+        "Lower_80": "Lower bound of the 80% prediction interval for the projected amount.",
+        "Upper_80": "Upper bound of the 80% prediction interval for the projected amount.",
+        "Method": "Projection method applied: 'formula_sac' (SAC per-WPU formula), 'trend_ols' (ordinary least-squares trend), 'sunset_zero' (forced to zero after sunset year), or 'insufficient_history' (fewer than 3 data points).",
+        "Scenario": "Projection scenario; matches policy_rate_assumptions.scenario. 'baseline' is the default for v1.",
+        "Built_At": "Timestamp when this row was computed and inserted by the funding-projections agent pipeline."
       }
     },
     "dim_district_geometry": {

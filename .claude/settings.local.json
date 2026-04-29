@@ -48,7 +48,19 @@
       "Bash(grep -oE '\\\\$[0-9.]+[BMK]' cc.html)",
       "Bash(curl -fs \"http://127.0.0.1:8765/api/ytd/chart?district=2301&fy=2026\" -o ytd.html)",
       "Bash(curl -fs \"http://127.0.0.1:8765/api/report/multi-fy?district=2301\" -o mf.html)",
-      "Bash(curl -fs \"http://127.0.0.1:8765/api/ytd/chart?district=2301\" -o ytd.html)"
+      "Bash(curl -fs \"http://127.0.0.1:8765/api/ytd/chart?district=2301\" -o ytd.html)",
+      "Read(//c/Users/Dan's Test Device/Finance Dazzle/design/**)",
+      "Bash(tasklist /fi \"pid eq 16064\")",
+      "Bash(tasklist)",
+      "WebSearch",
+      "WebFetch(domain:rfa.sc.gov)",
+      "WebFetch(domain:www.scstatehouse.gov)",
+      "Bash(mkdir -p data/uploads/rfa_reports)",
+      "Bash(curl -sSL -o \"data/uploads/rfa_reports/FY2025-26_Revenue_Per_Pupil.pdf\" \"https://rfa.sc.gov/sites/default/files/2025-10/FY%202025-26%20Revenue%20Per%20Pupil%20Report%20by%20District.pdf\")",
+      "Bash(curl -sSL -o \"data/uploads/rfa_reports/FY2024-25_Revenue_Per_Pupil.pdf\" \"https://rfa.sc.gov/sites/default/files/2024-10/FY%202024-25%20Revenue%20Per%20Pupil%20Report%20by%20District.pdf\")",
+      "Bash(curl -sSL -o \"data/uploads/rfa_reports/FY2023-24_Revenue_Per_Pupil.pdf\" \"https://rfa.sc.gov/sites/default/files/2023-12/FY%202023-24%20Revenue%20Per%20Pupil%20Report%20by%20District%2012.4.23.pdf\")",
+      "Bash(curl -sSL -o \"data/uploads/rfa_reports/FY2020-21_Revenue_Per_Pupil.pdf\" \"https://rfa.sc.gov/sites/default/files/2020-11/Rev%20Per%20Pupil%20by%20District%20FINAL%20FY%2021.pdf\")",
+      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projections.py)"
     ]
   }
 }
