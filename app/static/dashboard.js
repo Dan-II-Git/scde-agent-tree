@@ -68,10 +68,19 @@ function populateDropdowns() {
     .join("");
   document.getElementById("ytd-fy").innerHTML = sceisOpts;
 
-  // What-If only supports FYs we have category WPU data for. Hardcoded
-  // until lea_wpu_category covers more than FY24.
-  document.getElementById("whatif-fy").innerHTML =
-    [2024].map((fy) => `<option value="${fy}">FY${fy}</option>`).join("");
+  // What-If FY list comes from the API so total-only FYs (e.g. FY25) get
+  // a tag and the dashboard mirrors what the engine actually has loaded.
+  try {
+    const wd = await fetch("/api/whatif/sac/defaults").then((r) => r.json());
+    const fyEl = document.getElementById("whatif-fy");
+    fyEl.innerHTML = (wd.available_fys || []).map((fy) => {
+      const tag = wd.fy_modes[fy] === "total_only" ? " (total-only)" : "";
+      return `<option value="${fy}">FY${fy}${tag}</option>`;
+    }).join("");
+    if (wd.base_fy) fyEl.value = wd.base_fy;
+  } catch (e) {
+    // dashboard still renders even if the What-If endpoint is unreachable
+  }
 
   // Defaults: latest FY for LEA selectors, current SCEIS FY for YTD
   const latestLea = YEARS.lea.at(-1);

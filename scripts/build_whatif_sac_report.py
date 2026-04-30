@@ -63,22 +63,21 @@ def parse_args():
 
 
 def _slim_inputs(base_fy: int) -> list[dict]:
-    """Drop empty rows and shape inputs for the JS engine."""
+    """Shape engine inputs for the embedded JS clone. Emits the same
+    universe of districts as `whatif_sac._fetch_inputs` and uses full
+    float precision (no rounding) so the JS engine reproduces Python
+    output to the cent — see tests/test_whatif_sac_parity.py."""
     raw = whatif_sac._fetch_inputs(base_fy)
     out: list[dict] = []
     for did, rec in raw.items():
-        # Skip districts with no category data and no hold-harmless floor —
-        # they're excluded entities or non-modeled
-        if not rec["category_adm"] and rec["hold_harmless_floor"] == 0:
-            continue
         out.append({
             "id": did,
             "name": rec["district_name"],
             "isCharter": rec["is_charter"],
-            "ita": rec["ita"],
-            "adm": {k: round(float(v), 2) for k, v in rec["category_adm"].items()},
-            "floor": round(float(rec["hold_harmless_floor"]), 2),
-            "actualBaseFY": round(float(rec["actual_sac_base_fy"]), 2),
+            "ita": float(rec["ita"]),
+            "adm": {k: float(v) for k, v in rec["category_adm"].items()},
+            "floor": float(rec["hold_harmless_floor"]),
+            "actualBaseFY": float(rec["actual_sac_base_fy"]),
         })
     out.sort(key=lambda r: r["name"])
     return out
@@ -94,6 +93,19 @@ def build_html(inputs: list[dict], base_fy: int, init_appropriation: float) -> s
     weights_json = json.dumps(whatif_sac.DEFAULT_WEIGHTS)
     floor_codes = ", ".join(whatif_sac.HOLD_HARMLESS_REVENUE_CODES)
     today = dt.date.today().isoformat()
+
+    # Detect total-only mode: source file lacked the Financial Requirements
+    # sheet so we only have a TOTAL category per district. Per-category
+    # weight dialing is meaningless in this mode and the UI greys it out.
+    is_total_only = bool(inputs) and all(
+        set(d.get("adm", {}).keys()) <= {"TOTAL"} for d in inputs
+    )
+    mode_banner = (
+        f'<div class="mode-banner">FY{base_fy} source file (WPU 13525.xlsx) only carries district-total WPU — '
+        f'the Financial Requirements sheet was not published. Per-category weight dials are disabled. '
+        f'Switch to FY24 in the dashboard for full categorical control.</div>'
+        if is_total_only else ""
+    )
 
     css = _css()
     js = _js()
@@ -122,6 +134,7 @@ def build_html(inputs: list[dict], base_fy: int, init_appropriation: float) -> s
       <div><span class="dot" style="background:{TOK['brand_accent']}"></span> Hold-harmless floor active</div>
     </div>
   </header>
+  {mode_banner}
 
   <main class="layout">
     <aside class="controls">
@@ -316,6 +329,17 @@ tr.sub-row td {{ background: rgba(35, 64, 88, 0.03); font-style: italic; color: 
 tr.sub-row td:first-child {{ padding-left: 24px; border-left: 2px solid var(--border-subtle); }}
 tr.parent-row td {{ font-weight: 600; border-top: 2px solid var(--brand-secondary); }}
 tr.total-row td {{ font-weight: 600; border-top: 2px solid var(--brand-secondary); }}
+
+.mode-banner {{
+  background: rgba(241, 186, 85, 0.18);
+  border: 1px solid var(--brand-accent);
+  color: var(--brand-primary);
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-bottom: 14px;
+}}
+.ctrl-group.disabled {{ opacity: 0.45; pointer-events: none; }}
 .badge {{ display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 999px; font-family: var(--font-mono); }}
 .badge.floor {{ background: rgba(241, 186, 85, 0.20); color: var(--warning); border: 1px solid var(--warning); }}
 .badge.charter {{ background: rgba(35, 64, 88, 0.10); color: var(--brand-secondary); border: 1px solid var(--brand-secondary); }}
@@ -425,12 +449,20 @@ const WEIGHT_LABELS = {
   POVERTY: 'Poverty (add-on)',
   CHARTER_BM: 'Charter B&M (authorizer-only)',
   CHARTER_VIRT: 'Charter Virtual (authorizer-only)',
+  TOTAL: 'Total WPU multiplier (FY25 only)',
 };
 
 function buildWeightSliders() {
   const root = document.getElementById('weight-sliders');
   root.innerHTML = '';
+  // Detect total-only mode (FY25): every district has only the TOTAL category
+  const isTotalOnly = INPUTS.length > 0 &&
+    INPUTS.every(d => Object.keys(d.adm).every(k => k === 'TOTAL'));
   for (const key of Object.keys(DEFAULT_WEIGHTS)) {
+    // In total-only mode, hide non-TOTAL sliders entirely (they have no effect).
+    // In categorical mode, hide TOTAL (it has no effect since there are no TOTAL categories).
+    if (isTotalOnly && key !== 'TOTAL') continue;
+    if (!isTotalOnly && key === 'TOTAL') continue;
     const def = DEFAULT_WEIGHTS[key];
     const max = Math.max(def * 2, def + 1);
     const wrap = document.createElement('div');

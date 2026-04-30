@@ -396,11 +396,14 @@
       "purpose": "Category-level Weighted Pupil Unit detail extracted from the Financial Requirements sheet of each WPU135 file. Enables the SAC What-If formula engine to apply per-category statute weights (e.g., SPED 2.60 → 2.75) and compute district-level impact. One row per (District_ID, Fiscal_Year, Report_Cycle, Category). Load script: scripts/load_lea_wpu_category.py",
       "stability": "derived",
       "owner_agent": "lea-data",
-      "source": "WPU13524.xlsx Financial Requirements sheet · FY2024 · 135-day · 76 districts · 9 canonical categories",
+      "source": "WPU13521-WPU13524 Financial Requirements sheets (FY2021-FY2024, full categorical breakdown) plus WPU 13525 'WPU' sheet (FY2025, district totals only). 135-day cycle. 9 canonical categories for FY21-FY24; single 'TOTAL' synthetic category for FY25.",
       "load_caveats": [
+        "FY25 has no Financial Requirements sheet — the source file only carries district-total WPU. Loaded as Category='TOTAL' with ADM=Weighted_Pupils (implied weight=1.0). The What-If engine treats this as a degraded total-only mode where per-category weight dialing is disabled in the UI.",
+        "FY21 and FY22 source files use legacy pre-merger district names (Bamberg 01/02 before merge, Barnwell 19/29, Clarendon 01/02/04 before merge into Clarendon 06). Those rows fail the dim_district name join and are dropped at load time. FY21 and FY22 coverage is therefore lower than FY23+ (~70 districts vs. 76).",
         "RTF (Residential Treatment Facility, weight=2.10) is not present in the Financial Requirements sheet; RTF WPUs flow through a separate allocation mechanism and are missing from this table. The POVERTY row captures PIP (Pupils in Poverty, weight=0.50). GIFTED captures HIAC (Highly Able/Gifted, weight=0.15). HB (Homebound, weight=1.00) is absorbed into BASE_K12 because its implied weight equals the base weight.",
         "DUAL enrollment rows (Dual-enrolled students) appear in the Financial Requirements sheet with Weighted_Pupils=0 (not funded via WPU formula); they are excluded from this table.",
         "Charter district WPU totals (4701, 4801, 4901) will not reconcile to lea_wpu_allocations.Weighted_Pupils because the 135-day allocation total includes CHARTER_BM and CHARTER_VIRT allocations computed at the 45-day cycle from a separate source. Additionally, a residual (~155 RTF students for 4701, ~104 for 4801) flows outside the Financial Requirements sheet.",
+        "Barnwell consolidation: 0645 and 0648 still appear here as separate districts because the WPU source file uses legacy IDs. The What-If engine sums them into 0601 at fetch time when base_fy >= 2024 per the saved user preference; this denormalization stays at the engine layer rather than the data layer to preserve raw provenance.",
         "Source xlsx uses trailing whitespace (~40 spaces) on district name cells; join to dim_district via strip() on long_name."
       ],
       "source_label_mapping": {
@@ -413,13 +416,14 @@
         "GIFTED":      "HIAC",
         "ACAD_ASSIST": "ACAS",
         "LEP":         "LEP",
-        "POVERTY":     "PIP"
+        "POVERTY":     "PIP",
+        "TOTAL":       "(FY25 only — district-total WPU passthrough from the 'WPU' sheet of WPU 13525.xlsx; ADM = Weighted_Pupils, implied weight=1.0)"
       },
       "columns": {
         "District_ID":       "Zero-padded 4-digit SC district ID. Joins to dim_district.District_ID.",
         "Fiscal_Year":       "Fiscal year (4-digit ending year, e.g., 2024). Must match Report_Cycle — 135-day data is the funding-final measure.",
         "Report_Cycle":      "Days into the school year when the count was taken. Currently always 135 (funding-final). The 45-day charter categories (CHARTER_BM, CHARTER_VIRT) are loaded from the 45-day WPU file; this table does not carry 45-day rows.",
-        "Category":          "Canonical category label: BASE_K12, SPED, RTF, CTE, CHARTER_BM, CHARTER_VIRT, GIFTED, ACAD_ASSIST, LEP, POVERTY. Each maps to a specific statute weight in the SAC formula (FY26 Funding Manual p.13).",
+        "Category":          "Canonical category label: BASE_K12, SPED, RTF, CTE, CHARTER_BM, CHARTER_VIRT, GIFTED, ACAD_ASSIST, LEP, POVERTY (FY21-FY24); TOTAL for FY25 (single synthetic category covering the full district, since the FY25 source has no per-category breakdown). Each maps to a specific statute weight in the SAC formula (FY26 Funding Manual p.13).",
         "ADM":               "Raw unweighted student count (135-day Average Daily Membership) for this category, summed across all source row labels that roll into the canonical Category. Populated from the '135 Day ADM' column of the Financial Requirements sheet.",
         "Weighted_Pupils":   "ADM × statute weight for the category, summed from source sheet. Equals sum of the 'Weighted Pupils' column in the Financial Requirements sheet. BASE_K12 and HB have weight 1.00 so ADM = Weighted_Pupils. To apply a What-If weight: Weighted_Pupils_New = ADM × new_weight.",
         "Source_Row_Labels": "Comma-separated list of source xlsx row labels that contributed to this Category row. Provenance trace for audit. Example: 'AUT, EH, EM H, HH, LD, OH, SP H, TM, VH' for SPED."

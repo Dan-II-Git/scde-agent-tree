@@ -109,11 +109,16 @@ async def api_ytd_detail(district: str = Query(...), fy: int | None = None) -> H
 @app.get("/api/whatif/sac/defaults")
 async def api_whatif_sac_defaults() -> JSONResponse:
     """Statute defaults so the UI can render initial slider values."""
+    available_fys = whatif_sac.available_fiscal_years()
+    fy_modes = {fy: ("total_only" if whatif_sac.is_total_only_fy(fy) else "categorical")
+                for fy in available_fys}
     return JSONResponse({
         "appropriation": whatif_sac.FY26_APPROPRIATION_DEFAULT,
         "state_share_pct": whatif_sac.DEFAULT_STATE_SHARE_PCT,
         "weights": dict(whatif_sac.DEFAULT_WEIGHTS),
         "base_fy": whatif_sac.DEFAULT_BASE_FY,
+        "available_fys": available_fys,
+        "fy_modes": fy_modes,
         "apply_hold_harmless": True,
         "apply_charter_full_state": True,
         "hold_harmless_baseline_fy": whatif_sac.HOLD_HARMLESS_BASELINE_FY,

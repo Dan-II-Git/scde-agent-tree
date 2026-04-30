@@ -46,14 +46,61 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "POVERTY": 0.50,
     "CHARTER_BM": 1.25,
     "CHARTER_VIRT": 0.50,
+    # TOTAL is the FY25 fallback — source file lacks the per-category
+    # Financial Requirements sheet so we carry only district totals.
+    # The engine treats this as one synthetic category at weight=1.0;
+    # dialing TOTAL scales the whole district uniformly.
+    "TOTAL": 1.00,
 }
 
 DEFAULT_STATE_SHARE_PCT = 0.75
 CHARTER_AUTHORIZER_IDS = {"4701", "4801", "4901"}
 HOLD_HARMLESS_BASELINE_FY = 2023
 HOLD_HARMLESS_REVENUE_CODES = ["3103", "3503", "3538", "3550", "3555", "3583"]
-DEFAULT_BASE_FY = 2024
 FY26_APPROPRIATION_DEFAULT = 3_810_127_536.0  # Funding Manual p.10
+
+# Barnwell consolidation per saved user preference: in FY2024+ reports,
+# sum 0645+0648+0601 into Barnwell 01 (0601) for both WPU and revenue.
+BARNWELL_CONSOLIDATION_FROM_FY = 2024
+BARNWELL_LEGACY_IDS = ("0645", "0648")
+BARNWELL_MERGED_ID = "0601"
+BARNWELL_MERGED_NAME = "Barnwell 01 (consolidated)"
+
+
+def available_fiscal_years() -> list[int]:
+    """All FYs we have any lea_wpu_category data for, ascending."""
+    rows = fetchall("SELECT DISTINCT Fiscal_Year FROM lea_wpu_category ORDER BY Fiscal_Year")
+    return [r[0] for r in rows]
+
+
+def is_total_only_fy(fy: int) -> bool:
+    """True if the only Category in lea_wpu_category for this FY is TOTAL
+    — indicates the source file was district-totals-only (FY25 case)."""
+    rows = fetchall(
+        "SELECT DISTINCT Category FROM lea_wpu_category WHERE Fiscal_Year = ?",
+        [fy],
+    )
+    cats = {r[0] for r in rows}
+    return cats == {"TOTAL"}
+
+
+def _default_base_fy() -> int:
+    """Most recent FY with full categorical detail (not total-only).
+    Falls back to 2024 if the DB isn't reachable at import time."""
+    try:
+        fys = available_fiscal_years()
+    except Exception:
+        return 2024
+    for fy in reversed(fys):
+        if not is_total_only_fy(fy):
+            return fy
+    return fys[-1] if fys else 2024
+
+
+# Resolved at import. The most recent FY with category-level detail.
+# FY25 is total-only and not selected as default; users can opt into it
+# via the explicit dropdown.
+DEFAULT_BASE_FY: int = _default_base_fy()
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -66,7 +113,7 @@ class Scenario:
     appropriation: float = FY26_APPROPRIATION_DEFAULT
     state_share_pct: float = DEFAULT_STATE_SHARE_PCT
     weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
-    base_fy: int = DEFAULT_BASE_FY
+    base_fy: int = field(default_factory=lambda: DEFAULT_BASE_FY)
     apply_hold_harmless: bool = True
     apply_charter_full_state: bool = True
 
@@ -203,6 +250,26 @@ def _fetch_inputs(base_fy: int) -> dict[str, dict[str, Any]]:
     for did, actual in actual_rows:
         if did in by_district and actual is not None:
             by_district[did]["actual_sac_base_fy"] = float(actual)
+
+    # Barnwell consolidation per saved user preference: in FY2024+ reports,
+    # 0645 + 0648 + 0601 are reported as a single Barnwell 01 (0601). The
+    # WPU file still uses legacy IDs, so we sum at fetch time.
+    if base_fy >= BARNWELL_CONSOLIDATION_FROM_FY:
+        target = by_district.get(BARNWELL_MERGED_ID)
+        if target is not None:
+            for legacy_id in BARNWELL_LEGACY_IDS:
+                src = by_district.pop(legacy_id, None)
+                if src is None:
+                    continue
+                # Sum category ADM keys
+                for cat, adm in src["category_adm"].items():
+                    target["category_adm"][cat] = (
+                        target["category_adm"].get(cat, 0.0) + adm
+                    )
+                target["ita"] += src["ita"]
+                target["hold_harmless_floor"] += src["hold_harmless_floor"]
+                target["actual_sac_base_fy"] += src["actual_sac_base_fy"]
+            target["district_name"] = BARNWELL_MERGED_NAME
 
     return by_district
 
