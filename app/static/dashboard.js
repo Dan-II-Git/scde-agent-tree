@@ -40,7 +40,7 @@ function setStatus(kind, msg) {
   statusEl.textContent = msg;
 }
 
-function populateDropdowns() {
+async function populateDropdowns() {
   const districtSelects = ["detail-district", "multify-district", "ytd-district"];
   const districtOpts = DISTRICTS.map(
     (d) => `<option value="${d.id}">${escapeHtml(d.name)}</option>`,

@@ -54,7 +54,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 }
 
 DEFAULT_STATE_SHARE_PCT = 0.75
-CHARTER_AUTHORIZER_IDS = {"4701", "4801", "4901"}
+CHARTER_AUTHORIZER_IDS = {"4701", "4801"}  # 4901 Limestone closed mid-FY26; excluded via lookup_district_exclusions
 HOLD_HARMLESS_BASELINE_FY = 2023
 HOLD_HARMLESS_REVENUE_CODES = ["3103", "3503", "3538", "3550", "3555", "3583"]
 FY26_APPROPRIATION_DEFAULT = 3_810_127_536.0  # Funding Manual p.10
@@ -147,7 +147,10 @@ def _fetch_inputs(base_fy: int) -> dict[str, dict[str, Any]]:
     actuals, and hold-harmless floor for every district. Returns
     {District_ID: {...}} keyed inputs the engine can sum/scale."""
     excl = fetchall(
-        "SELECT District_ID FROM lookup_district_exclusions WHERE Exclude_Scope = 'all_reports'"
+        """
+        SELECT District_ID FROM lookup_district_exclusions
+        WHERE Exclude_Scope IN ('all_reports', 'whatif_sac')
+        """
     )
     excluded = {r[0] for r in excl}
 
@@ -388,6 +391,7 @@ def run_scenario(scenario: Scenario) -> dict[str, Any]:
             "RTF is not in the 135-day source file; engine treats RTF ADM as 0 statewide. Real RTF allocations flow through a separate channel (~770 statewide WPU residual).",
             "Hold-harmless floor uses FY23 actuals across codes {} per Funding Manual p.12. Reported_Flag=TRUE filter applied.".format(",".join(HOLD_HARMLESS_REVENUE_CODES)),
             "Special districts/career centers/alternative schools (per p.13: receive prior-FY frozen amount) are not modeled separately — their floor catches them via hold-harmless.",
+            "Limestone Charter Association (4901) is excluded — the entity closed during the 2025-26 school year. Any closure-year hold-harmless obligation (FY23 floor: $19.08M) is handled outside this engine.",
             "Result is 'pure formula' — proviso overrides and supplemental weights from the appropriation act are NOT modeled.",
         ],
     }

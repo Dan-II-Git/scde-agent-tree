@@ -28,7 +28,7 @@ async def root() -> FileResponse:
 
 
 @app.get("/health")
-async def health() -> dict:
+def health() -> dict:
     return {
         "status": "ok",
         "db_exists": (PROJECT_ROOT / "db" / "scde.duckdb").exists(),
@@ -44,12 +44,12 @@ async def health() -> dict:
 
 
 @app.get("/api/districts")
-async def api_districts() -> JSONResponse:
+def api_districts() -> JSONResponse:
     return JSONResponse(q.list_districts())
 
 
 @app.get("/api/years")
-async def api_years() -> JSONResponse:
+def api_years() -> JSONResponse:
     return JSONResponse({
         "lea": q.list_fiscal_years_lea(),
         "sceis": q.list_fiscal_years_sceis(),
@@ -58,7 +58,7 @@ async def api_years() -> JSONResponse:
 
 
 @app.get("/api/map")
-async def api_map(fy: int = Query(...)) -> JSONResponse:
+def api_map(fy: int = Query(...)) -> JSONResponse:
     if fy not in q.list_fiscal_years_lea():
         raise HTTPException(400, f"FY{fy} not available; got {q.list_fiscal_years_lea()}")
     return JSONResponse(q.get_map_features(fy))
@@ -70,13 +70,13 @@ async def api_map(fy: int = Query(...)) -> JSONResponse:
 
 
 @app.get("/api/report/detail")
-async def api_detail(district: str = Query(...), fy: int = Query(...)) -> HTMLResponse:
+def api_detail(district: str = Query(...), fy: int = Query(...)) -> HTMLResponse:
     data = q.get_detail_rows(district, fy)
     return HTMLResponse(r.render_detail(data))
 
 
 @app.get("/api/report/compare")
-async def api_compare(fy: int = Query(...), mode: str = Query("table")) -> HTMLResponse:
+def api_compare(fy: int = Query(...), mode: str = Query("table")) -> HTMLResponse:
     data = q.get_compare_table(fy)
     if mode == "chart":
         return HTMLResponse(r.render_compare_chart(data))
@@ -84,19 +84,19 @@ async def api_compare(fy: int = Query(...), mode: str = Query("table")) -> HTMLR
 
 
 @app.get("/api/report/multi-fy")
-async def api_multi_fy(district: str = Query(...)) -> HTMLResponse:
+def api_multi_fy(district: str = Query(...)) -> HTMLResponse:
     data = q.get_multi_fy_district(district)
     return HTMLResponse(r.render_multi_fy(data))
 
 
 @app.get("/api/ytd/chart")
-async def api_ytd_chart(district: str = Query(...), fy: int | None = None) -> HTMLResponse:
+def api_ytd_chart(district: str = Query(...), fy: int | None = None) -> HTMLResponse:
     data = q.get_ytd_monthly(district, fy)
     return HTMLResponse(r.render_ytd_chart(data))
 
 
 @app.get("/api/ytd/detail")
-async def api_ytd_detail(district: str = Query(...), fy: int | None = None) -> HTMLResponse:
+def api_ytd_detail(district: str = Query(...), fy: int | None = None) -> HTMLResponse:
     data = q.get_ytd_monthly(district, fy)
     return HTMLResponse(r.render_ytd_detail(data))
 
@@ -107,7 +107,7 @@ async def api_ytd_detail(district: str = Query(...), fy: int | None = None) -> H
 
 
 @app.get("/api/whatif/sac/defaults")
-async def api_whatif_sac_defaults() -> JSONResponse:
+def api_whatif_sac_defaults() -> JSONResponse:
     """Statute defaults so the UI can render initial slider values."""
     available_fys = whatif_sac.available_fiscal_years()
     fy_modes = {fy: ("total_only" if whatif_sac.is_total_only_fy(fy) else "categorical")
@@ -127,7 +127,7 @@ async def api_whatif_sac_defaults() -> JSONResponse:
 
 
 @app.post("/api/whatif/sac")
-async def api_whatif_sac(scenario: dict[str, Any] = Body(default_factory=dict)) -> JSONResponse:
+def api_whatif_sac(scenario: dict[str, Any] = Body(default_factory=dict)) -> JSONResponse:
     """Run the strict-formula SAC allocation engine. Body is a partial
     scenario dict; missing fields fall back to statute defaults."""
     try:
@@ -139,7 +139,7 @@ async def api_whatif_sac(scenario: dict[str, Any] = Body(default_factory=dict)) 
 
 
 @app.get("/api/whatif/sac/report")
-async def api_whatif_sac_report(
+def api_whatif_sac_report(
     base_fy: int = Query(default=whatif_sac.DEFAULT_BASE_FY),
     appropriation: float = Query(default=whatif_sac.FY26_APPROPRIATION_DEFAULT),
 ) -> HTMLResponse:

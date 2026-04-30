@@ -162,6 +162,27 @@ REPORT_CSS = """
 .scde-report .stream-local { background: rgba(86, 180, 233, 0.08); }
 .scde-report .stream-state { background: rgba(243, 186, 85, 0.08); }
 .scde-report .stream-federal { background: rgba(204, 121, 167, 0.08); }
+.scde-report tr.stream-header td {
+  background: var(--brand-primary); color: #fff; font-weight: 600;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 8px 10px;
+}
+.scde-report tr.parent-row { cursor: pointer; }
+.scde-report tr.parent-row td { font-weight: 600; }
+.scde-report tr.parent-row.is-orphan { cursor: default; }
+.scde-report tr.parent-row:hover td:not(.num) { background: rgba(67, 113, 139, 0.06); }
+.scde-report .toggle-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0;
+  background: transparent; border: 0; color: var(--brand-tertiary);
+  font-size: 11px; line-height: 1; cursor: pointer; vertical-align: middle;
+  transition: transform 120ms ease;
+}
+.scde-report tr.parent-row.expanded .toggle-btn { transform: rotate(90deg); }
+.scde-report tr.leaf-row td { padding-left: 32px; font-size: 12px; color: #43526B; }
+.scde-report tr.leaf-row td:first-child { padding-left: 32px; }
+.scde-report tr.leaf-row td.num { padding-left: 10px; }
+.scde-report tr.leaf-row[hidden] { display: none; }
 .scde-report .footer { margin-top: 24px; padding: 12px; background: var(--neutral-bg); border-left: 3px solid var(--brand-tertiary); font-size: 12px; color: var(--brand-tertiary); }
 .scde-report .footer p { margin: 4px 0; }
 .scde-report .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: var(--font-mono); margin-left: 6px; }
@@ -275,7 +296,7 @@ def _stream_class(bucket: str) -> str:
 def render_detail(data: dict[str, Any]) -> str:
     d = data["district"]
     fy = data["fy"]
-    items = data["items"]
+    groups = data.get("groups", [])
     hc = data["headcount"]
     state_sceis = data["sceis_state_total"]
     federal_sceis = data["sceis_federal_total"]
@@ -290,54 +311,117 @@ def render_detail(data: dict[str, Any]) -> str:
         <p class="badge danger">Not reported by district in LEA self-report. SCEIS state-side totals shown above.</p>
         """
     else:
-        # Group items by Stream → Category for nesting
-        grouped: dict[str, dict[str, list[dict]]] = {}
-        for it in items:
-            stream = it["stream"] or "Uncategorized"
-            cat = it["category"] or "—"
-            grouped.setdefault(stream, {}).setdefault(cat, []).append(it)
-
-        rows_html = []
+        rows_html: list[str] = []
         grand_total = 0.0
-        for stream in ("Local", "State", "Federal", "Uncategorized"):
-            if stream not in grouped:
-                continue
-            stream_total = 0.0
-            for cat, leaves in grouped[stream].items():
-                for it in leaves:
-                    grand_total += it["amount"]
-                    stream_total += it["amount"]
-                    cls = _stream_class((it["bucket"] or stream))
-                    desc = html.escape(it["full_name"] or it["display_title"] or "")
-                    code = html.escape(it["code"])
-                    cat_label = html.escape(cat)
+        gid = 0
+        for grp in groups:
+            stream = grp["stream"]
+            stream_total = grp["stream_total"]
+            grand_total += stream_total
+            stream_cls = _stream_class(stream) or ""
+
+            # Stream header row
+            rows_html.append(
+                f'<tr class="stream-header"><td colspan="2">{html.escape(stream)}</td>'
+                f'{_money_cell(stream_total)}</tr>'
+            )
+
+            for parent in grp["parents"]:
+                gid += 1
+                group_id = f"g{gid}"
+                pcode = html.escape(parent["code"])
+                ptitle = html.escape(parent["title"] or parent["code"])
+                if parent["is_orphan"]:
+                    # Self-parent: no expansion, no leaf rows. Show a stand-alone
+                    # row with the leaf's info button so descriptions stay reachable.
+                    leaf = parent["leaves"][0]
                     info_btn = code_info_button(
-                        it["code"],
-                        it["full_name"] or it["display_title"],
-                        it["short_description"],
-                        it.get("full_description"),
+                        leaf["code"],
+                        leaf["full_name"] or leaf["display_title"],
+                        leaf["short_description"],
+                        leaf.get("full_description"),
                     )
                     rows_html.append(
-                        f'<tr class="{cls}">'
-                        f'<td class="code-cell"><span class="badge info">{code}</span> {info_btn}</td>'
-                        f'<td>{cat_label}</td>'
-                        f'<td>{desc}</td>'
-                        f'{_money_cell(it["amount"])}'
+                        f'<tr class="parent-row is-orphan {stream_cls}">'
+                        f'<td class="code-cell"><span class="toggle-btn" aria-hidden="true"></span>'
+                        f'<span class="badge info">{pcode}</span> {info_btn}</td>'
+                        f'<td>{ptitle}</td>'
+                        f'{_money_cell(parent["amount"])}'
                         f'</tr>'
                     )
+                    continue
+
                 rows_html.append(
-                    f'<tr class="subtotal"><td colspan="3">{html.escape(stream)} subtotal</td>'
-                    f'{_money_cell(stream_total)}</tr>'
-                ) if False else None  # subtotals per stream below instead
+                    f'<tr class="parent-row {stream_cls}" data-group="{group_id}" '
+                    f'role="button" tabindex="0" aria-expanded="false" aria-controls="{group_id}">'
+                    f'<td class="code-cell"><button class="toggle-btn" aria-label="Toggle {pcode}" '
+                    f'tabindex="-1">▸</button> '
+                    f'<span class="badge info">{pcode}</span></td>'
+                    f'<td>{ptitle}</td>'
+                    f'{_money_cell(parent["amount"])}'
+                    f'</tr>'
+                )
+
+                for leaf in parent["leaves"]:
+                    code = html.escape(leaf["code"])
+                    desc = html.escape(leaf["full_name"] or leaf["display_title"] or "")
+                    info_btn = code_info_button(
+                        leaf["code"],
+                        leaf["full_name"] or leaf["display_title"],
+                        leaf["short_description"],
+                        leaf.get("full_description"),
+                    )
+                    rows_html.append(
+                        f'<tr class="leaf-row {stream_cls}" data-parent="{group_id}" hidden>'
+                        f'<td class="code-cell"><span class="badge info">{code}</span> {info_btn}</td>'
+                        f'<td>{desc}</td>'
+                        f'{_money_cell(leaf["amount"])}'
+                        f'</tr>'
+                    )
+
             rows_html.append(
-                f'<tr class="subtotal"><td colspan="3">Subtotal — {html.escape(stream)} (LEA)</td>'
+                f'<tr class="subtotal"><td colspan="2">Subtotal — {html.escape(stream)} (LEA)</td>'
                 f'{_money_cell(stream_total)}</tr>'
             )
 
         rows_html.append(
-            f'<tr class="statewide"><td colspan="3">Grand Total (LEA self-report)</td>'
+            f'<tr class="statewide"><td colspan="2">Grand Total (LEA self-report)</td>'
             f'{_money_cell(grand_total)}</tr>'
         )
+
+        toggle_script = """
+<script>
+(function() {
+  function init() {
+    var rows = document.querySelectorAll('.scde-report tr.parent-row[data-group]');
+    rows.forEach(function(row) {
+      if (row.__scdeBound) return;
+      row.__scdeBound = true;
+      function toggle() {
+        var gid = row.getAttribute('data-group');
+        var expanded = row.classList.toggle('expanded');
+        row.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        var btn = row.querySelector('.toggle-btn');
+        if (btn) btn.textContent = expanded ? '▾' : '▸';
+        document.querySelectorAll('.scde-report tr.leaf-row[data-parent="' + gid + '"]').forEach(function(leaf) {
+          if (expanded) leaf.removeAttribute('hidden');
+          else leaf.setAttribute('hidden', '');
+        });
+      }
+      row.addEventListener('click', function(ev) {
+        // Don't toggle if user clicked the per-code info button
+        if (ev.target.closest('.info-btn')) return;
+        toggle();
+      });
+      row.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); }
+      });
+    });
+  }
+  init();
+})();
+</script>
+"""
 
         body = f"""
         <div class="kpi-row">
@@ -347,14 +431,16 @@ def render_detail(data: dict[str, Any]) -> str:
           <div class="kpi"><div class="kpi-label">Headcount (SY{fy})</div><div class="kpi-value">{html.escape(fmt_int(hc))}</div></div>
           <div class="kpi"><div class="kpi-label">Per-Pupil (LEA)</div><div class="kpi-value">{html.escape(fmt_pp(grand_total/hc) if hc else 'n/a')}</div></div>
         </div>
+        <p class="meta" style="margin:0 0 8px 0">Click a category row to expand/collapse the underlying revenue codes. Two codes (3350, 3392) have no Level-2 parent in the funding-stream hierarchy and appear as standalone rows.</p>
         <table>
           <thead>
-            <tr><th>Code</th><th>Category</th><th>Description</th><th class="num">Amount</th></tr>
+            <tr><th>Code</th><th>Description</th><th class="num">Amount</th></tr>
           </thead>
           <tbody>
-            {''.join(r for r in rows_html if r)}
+            {''.join(rows_html)}
           </tbody>
         </table>
+        {toggle_script}
         """
 
     footer = _methodology_footer(

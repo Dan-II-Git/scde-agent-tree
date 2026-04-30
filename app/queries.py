@@ -10,6 +10,7 @@ Conventions enforced here:
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from typing import Any
 
 from app.db import fetchall, fetchone
@@ -19,6 +20,7 @@ from app.db import fetchall, fetchone
 # ──────────────────────────────────────────────────────────────────────
 
 
+@lru_cache(maxsize=1)
 def excluded_district_ids() -> list[str]:
     rows = fetchall(
         "SELECT District_ID FROM lookup_district_exclusions WHERE Exclude_Scope = 'all_reports'"
@@ -26,6 +28,7 @@ def excluded_district_ids() -> list[str]:
     return [r[0] for r in rows]
 
 
+@lru_cache(maxsize=1)
 def list_districts() -> list[dict[str, str]]:
     excl = excluded_district_ids()
     placeholders = ",".join("?" * len(excl)) if excl else "''"
@@ -41,11 +44,13 @@ def list_districts() -> list[dict[str, str]]:
     return [{"id": r[0], "name": r[1]} for r in rows]
 
 
+@lru_cache(maxsize=1)
 def list_fiscal_years_lea() -> list[int]:
     rows = fetchall("SELECT DISTINCT FY FROM lea_revenues ORDER BY FY")
     return [r[0] for r in rows]
 
 
+@lru_cache(maxsize=1)
 def list_fiscal_years_sceis() -> list[int]:
     rows = fetchall(
         "SELECT DISTINCT Fiscal_Year FROM vw_sceis_fi_payments_classified WHERE Fiscal_Year IS NOT NULL ORDER BY Fiscal_Year"
@@ -53,6 +58,7 @@ def list_fiscal_years_sceis() -> list[int]:
     return [r[0] for r in rows]
 
 
+@lru_cache(maxsize=1)
 def current_sceis_fy() -> int | None:
     row = fetchone("SELECT MAX(Fiscal_Year) FROM vw_sceis_fi_payments_classified")
     return row[0] if row else None
@@ -217,49 +223,104 @@ def get_map_features(fy: int) -> dict[str, Any]:
 
 
 def get_detail_rows(district_id: str, fy: int) -> dict[str, Any]:
+    """Return leaves grouped under their Rollup_Level=2 parent for an
+    expand/collapse UI. Leaves whose computed parent (LEFT(code,2)||'00')
+    has no Level-2 row in `code_district_funding_streams` self-parent —
+    the parent row IS the leaf, marked is_orphan=True. Level-1 and
+    Level-2 placeholder rows in lea_revenues (which carry $0) are
+    filtered via Rollup_Level >= 3."""
     rows = fetchall(
         f"""
+        WITH leaf_rows AS (
+          SELECT
+            lr.Revenue_Code AS code,
+            cdfs.Stream_Type,
+            cdfs.Display_Title AS leaf_title,
+            cdfs.Rollup_Level AS leaf_level,
+            cac.Full_Name,
+            cac.Short_Description,
+            cac.Full_Description,
+            lr.Amount,
+            LEFT(lr.Revenue_Code, 2) || '00' AS computed_parent,
+            {BUCKET_CASE} AS bucket
+          FROM lea_revenues lr
+          JOIN code_district_funding_streams cdfs
+                 ON lr.Revenue_Code = cdfs.REV_Code
+          LEFT JOIN code_accounting_codes cac
+                 ON cac.Code = lr.Revenue_Code AND cac.Type = 'Revenue'
+          JOIN vw_revenue_code_status v
+                 ON v.REV_Code = lr.Revenue_Code
+          WHERE lr.District_ID = ?
+            AND lr.FY = ?
+            AND lr.Reported_Flag = TRUE
+            AND v.Is_Statewide_Dormant = FALSE
+            AND cdfs.Rollup_Level >= 3
+        )
         SELECT
-          lr.Revenue_Code,
-          cdfs.Stream_Type,
-          cdfs.Category,
-          cdfs.Display_Title,
-          cdfs.Rollup_Level,
-          cac.Full_Name,
-          cac.Short_Description,
-          cac.Full_Description,
-          lr.Amount,
-          {BUCKET_CASE} AS bucket
-        FROM lea_revenues lr
-        LEFT JOIN code_district_funding_streams cdfs
-               ON lr.Revenue_Code = cdfs.REV_Code
-        LEFT JOIN code_accounting_codes cac
-               ON cac.Code = lr.Revenue_Code AND cac.Type = 'Revenue'
-        JOIN vw_revenue_code_status v
-               ON v.REV_Code = lr.Revenue_Code
-        WHERE lr.District_ID = ?
-          AND lr.FY = ?
-          AND lr.Reported_Flag = TRUE
-          AND v.Is_Statewide_Dormant = FALSE
-        ORDER BY cdfs.Stream_Type NULLS LAST, cdfs.Category NULLS LAST, lr.Revenue_Code
+          l.Stream_Type,
+          COALESCE(p.REV_Code, l.code) AS parent_code,
+          COALESCE(p.Display_Title, l.leaf_title) AS parent_title,
+          (p.REV_Code IS NULL) AS is_orphan,
+          l.code, l.leaf_title, l.leaf_level,
+          l.Full_Name, l.Short_Description, l.Full_Description,
+          l.Amount, l.bucket
+        FROM leaf_rows l
+        LEFT JOIN code_district_funding_streams p
+               ON p.REV_Code = l.computed_parent
+              AND p.Rollup_Level = 2
+        ORDER BY l.Stream_Type NULLS LAST, parent_code, l.code
         """,
         [district_id, fy],
     )
-    items = [
-        {
-            "code": r[0],
-            "stream": r[1],
-            "category": r[2],
-            "display_title": r[3],
-            "rollup_level": r[4],
-            "full_name": r[5] or r[3],
-            "short_description": r[6] or "",
-            "full_description": r[7] or "",
-            "amount": float(r[8]) if r[8] is not None else 0.0,
-            "bucket": r[9],
+
+    items: list[dict[str, Any]] = []
+    groups: list[dict[str, Any]] = []
+    by_stream: dict[str, dict[str, Any]] = {}
+    parent_index: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for r in rows:
+        (stream, parent_code, parent_title, is_orphan, code, leaf_title, leaf_level,
+         full_name, short_desc, full_desc, amount, bucket) = r
+        amount_f = float(amount) if amount is not None else 0.0
+        leaf = {
+            "code": code,
+            "stream": stream,
+            "display_title": leaf_title,
+            "rollup_level": leaf_level,
+            "full_name": full_name or leaf_title,
+            "short_description": short_desc or "",
+            "full_description": full_desc or "",
+            "amount": amount_f,
+            "bucket": bucket,
         }
-        for r in rows
-    ]
+        items.append(leaf)
+
+        stream_key = stream or "Uncategorized"
+        sg = by_stream.get(stream_key)
+        if sg is None:
+            sg = {"stream": stream_key, "parents": [], "stream_total": 0.0}
+            by_stream[stream_key] = sg
+            groups.append(sg)
+
+        pkey = (stream_key, parent_code)
+        parent = parent_index.get(pkey)
+        if parent is None:
+            parent = {
+                "code": parent_code,
+                "title": parent_title or parent_code,
+                "is_orphan": bool(is_orphan),
+                "amount": 0.0,
+                "leaves": [],
+            }
+            parent_index[pkey] = parent
+            sg["parents"].append(parent)
+        parent["leaves"].append(leaf)
+        parent["amount"] += amount_f
+        sg["stream_total"] += amount_f
+
+    # Stable stream order matching the previous renderer
+    stream_order = {"Local": 0, "State": 1, "Federal": 2}
+    groups.sort(key=lambda g: stream_order.get(g["stream"], 99))
 
     reported = bool(rows) or _has_any_lea_row(district_id, fy)
 
@@ -272,6 +333,7 @@ def get_detail_rows(district_id: str, fy: int) -> dict[str, Any]:
         "fy": fy,
         "headcount": headcount,
         "items": items,
+        "groups": groups,
         "reported": reported,
         "sceis_state_total": sceis_state,
         "sceis_federal_total": sceis_federal,
