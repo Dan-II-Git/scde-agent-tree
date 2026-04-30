@@ -68,6 +68,11 @@ function populateDropdowns() {
     .join("");
   document.getElementById("ytd-fy").innerHTML = sceisOpts;
 
+  // What-If only supports FYs we have category WPU data for. Hardcoded
+  // until lea_wpu_category covers more than FY24.
+  document.getElementById("whatif-fy").innerHTML =
+    [2024].map((fy) => `<option value="${fy}">FY${fy}</option>`).join("");
+
   // Defaults: latest FY for LEA selectors, current SCEIS FY for YTD
   const latestLea = YEARS.lea.at(-1);
   document.getElementById("detail-fy").value = latestLea;
@@ -198,6 +203,9 @@ async function runReport(action) {
     case "ytd-detail":
       url = `/api/ytd/detail?district=${qs("ytd-district")}&fy=${qs("ytd-fy")}`;
       break;
+    case "whatif-sac":
+      window.open(`/api/whatif/sac/report?base_fy=${qs("whatif-fy")}`, "_blank", "noopener");
+      return;
     default:
       return;
   }
@@ -212,6 +220,7 @@ async function runReport(action) {
     }
     const html = await resp.text();
     outputEl.innerHTML = html;
+    await executeInlineScripts(outputEl);
     outputEl.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (exc) {
     showError(exc.message);
@@ -224,6 +233,29 @@ async function runReport(action) {
 
 function qs(id) {
   return encodeURIComponent(document.getElementById(id).value);
+}
+
+// Re-run <script> tags inserted via innerHTML — the spec marks them inert,
+// so Tippy CDN + the info-btn init IIFE never fire without this. External
+// srcs are awaited so inline scripts that reference window.tippy run after
+// the CDN finishes loading.
+async function executeInlineScripts(container) {
+  const scripts = Array.from(container.querySelectorAll("script"));
+  for (const oldScript of scripts) {
+    await new Promise((resolve) => {
+      const s = document.createElement("script");
+      for (const attr of oldScript.attributes) {
+        s.setAttribute(attr.name, attr.value);
+      }
+      s.text = oldScript.textContent;
+      if (oldScript.src) {
+        s.onload = resolve;
+        s.onerror = resolve;
+      }
+      oldScript.parentNode.replaceChild(s, oldScript);
+      if (!oldScript.src) resolve();
+    });
+  }
 }
 
 function escapeHtml(s) {

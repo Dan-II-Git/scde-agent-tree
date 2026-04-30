@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import queries as q
 from app import render as r
+from app import whatif_sac
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -97,6 +99,52 @@ async def api_ytd_chart(district: str = Query(...), fy: int | None = None) -> HT
 async def api_ytd_detail(district: str = Query(...), fy: int | None = None) -> HTMLResponse:
     data = q.get_ytd_monthly(district, fy)
     return HTMLResponse(r.render_ytd_detail(data))
+
+
+# ──────────────────────────────────────────────────────────────────────
+# What-If: State Aid to Classrooms
+# ──────────────────────────────────────────────────────────────────────
+
+
+@app.get("/api/whatif/sac/defaults")
+async def api_whatif_sac_defaults() -> JSONResponse:
+    """Statute defaults so the UI can render initial slider values."""
+    return JSONResponse({
+        "appropriation": whatif_sac.FY26_APPROPRIATION_DEFAULT,
+        "state_share_pct": whatif_sac.DEFAULT_STATE_SHARE_PCT,
+        "weights": dict(whatif_sac.DEFAULT_WEIGHTS),
+        "base_fy": whatif_sac.DEFAULT_BASE_FY,
+        "apply_hold_harmless": True,
+        "apply_charter_full_state": True,
+        "hold_harmless_baseline_fy": whatif_sac.HOLD_HARMLESS_BASELINE_FY,
+        "hold_harmless_revenue_codes": whatif_sac.HOLD_HARMLESS_REVENUE_CODES,
+    })
+
+
+@app.post("/api/whatif/sac")
+async def api_whatif_sac(scenario: dict[str, Any] = Body(default_factory=dict)) -> JSONResponse:
+    """Run the strict-formula SAC allocation engine. Body is a partial
+    scenario dict; missing fields fall back to statute defaults."""
+    try:
+        sc = whatif_sac.Scenario.from_dict(scenario or {})
+        result = whatif_sac.run_scenario(sc)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return JSONResponse(result)
+
+
+@app.get("/api/whatif/sac/report")
+async def api_whatif_sac_report(
+    base_fy: int = Query(default=whatif_sac.DEFAULT_BASE_FY),
+    appropriation: float = Query(default=whatif_sac.FY26_APPROPRIATION_DEFAULT),
+) -> HTMLResponse:
+    """Render the standalone interactive What-If HTML page on demand."""
+    # Lazy-import the builder to avoid pulling sys.path tweaks at server import
+    from scripts.build_whatif_sac_report import build_html, _slim_inputs
+    inputs = _slim_inputs(base_fy)
+    if not inputs:
+        raise HTTPException(404, f"No input data for FY{base_fy}")
+    return HTMLResponse(build_html(inputs, base_fy, appropriation))
 
 
 # ──────────────────────────────────────────────────────────────────────
