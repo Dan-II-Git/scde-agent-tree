@@ -68,7 +68,24 @@
       "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district \"Charter Institute at Erskine\")",
       "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district 4701)",
       "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district 4901)",
-      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district 4801)"
+      "Bash(PYTHONIOENCODING=utf-8 python3 scripts/build_funding_projection_report.py --district 4801)",
+      "Bash(pdftotext -layout -f 12 -l 15 \"data/uploads/2025-26-Funding Manual-Final.pdf\" -)",
+      "Bash(pdftotext -layout -f 1 -l 11 \"data/uploads/2025-26-Funding Manual-Final.pdf\" -)",
+      "Bash(pdftotext *)",
+      "Bash(ls -la .venv/)",
+      "Bash(ls -la venv/)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python scripts/build_whatif_sac_report.py)",
+      "Bash(.venv/Scripts/python -c ' *)",
+      "Bash(git check-ignore *)",
+      "Bash(git push *)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python tests/test_whatif_sac_parity.py)",
+      "Bash(python -c ' *)",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/load_lea_wpu_category.py)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python scripts/build_whatif_sac_report.py --base-fy 2025 --output outputs/reports/whatif_sac_fy25.html)",
+      "Bash(curl *)",
+      "Bash(netstat -ano)",
+      "Bash(powershell.exe -Command 'Stop-Process -Id 16952 -Force -ErrorAction SilentlyContinue; Get-Process | Where-Object { $_.ProcessName -eq '\\\\''python'\\\\'' } | Format-Table Id, ProcessName, StartTime')",
+      "Bash(powershell.exe *)"
     ]
   }
 }

@@ -143,12 +143,15 @@ def build_html(inputs: list[dict], base_fy: int, init_appropriation: float) -> s
       <div class="ctrl-group">
         <label class="ctrl-label">
           <span>Total appropriation</span>
-          <output id="out-appropriation">$3,810,127,536</output>
+          <input type="text" id="in-appropriation" class="ctrl-text"
+                 value="${int(init_appropriation):,}"
+                 inputmode="numeric" autocomplete="off" spellcheck="false"
+                 aria-label="Total appropriation amount in dollars">
         </label>
         <input type="range" id="appropriation"
                min="2000000000" max="6000000000" step="10000000"
                value="{int(init_appropriation)}">
-        <div class="ctrl-hint">$2.0B – $6.0B; FY26 enacted = $3.81B</div>
+        <div class="ctrl-hint">Slider $2B–$6B · type any positive $ in the box · FY26 enacted $3.81B</div>
       </div>
 
       <div class="ctrl-group">
@@ -289,6 +292,14 @@ html, body {{ margin: 0; padding: 0; background: var(--neutral-bg); color: var(-
 input[type="range"] {{ width: 100%; accent-color: var(--brand-secondary); }}
 .ctrl-toggle {{ display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 8px 0; cursor: pointer; }}
 .ctrl-toggle input {{ accent-color: var(--brand-secondary); }}
+.ctrl-text {{
+  font-family: var(--font-mono); font-weight: 500;
+  color: var(--brand-secondary); background: #fff;
+  border: 1px solid var(--border-subtle); border-radius: 3px;
+  padding: 2px 6px; width: 140px; text-align: right; font-size: 12px;
+}}
+.ctrl-text:focus {{ outline: none; border-color: var(--brand-tertiary); }}
+.ctrl-text.invalid {{ border-color: var(--danger); background: rgba(179, 38, 30, 0.05); color: var(--danger); }}
 .btn-reset {{
   margin-top: 16px; width: 100%; padding: 8px 12px; font-family: var(--font-display); font-size: 12px;
   background: var(--neutral-bg); color: var(--brand-primary); border: 1px solid var(--border-subtle);
@@ -479,11 +490,44 @@ function buildWeightSliders() {
   }
 }
 
+// Strip $, commas, spaces; accept scientific (e.g. "3.8e9") or bare digits.
+// Returns NaN for non-positive or non-finite — the caller flags the input.
+function parseAppropriation(str) {
+  if (str == null) return NaN;
+  const cleaned = String(str).replace(/[$,\s_]/g, '');
+  if (cleaned === '') return NaN;
+  const v = parseFloat(cleaned);
+  return (Number.isFinite(v) && v > 0) ? v : NaN;
+}
+
+// Single source of truth for "the appropriation changed". Updates state,
+// syncs both the slider (clamped to its visual range) and the text input
+// (formatted with commas), then re-renders.
+function setAppropriation(v) {
+  STATE.appropriation = v;
+  const slider = document.getElementById('appropriation');
+  const txt    = document.getElementById('in-appropriation');
+  const sMin = parseFloat(slider.min), sMax = parseFloat(slider.max);
+  slider.value = Math.max(sMin, Math.min(sMax, v));
+  txt.value = '$' + Math.round(v).toLocaleString();
+  txt.classList.remove('invalid');
+  rerender();
+}
+
 function bindControls() {
   document.getElementById('appropriation').addEventListener('input', e => {
-    STATE.appropriation = parseFloat(e.target.value);
-    document.getElementById('out-appropriation').textContent = fmtMoney(STATE.appropriation);
-    rerender();
+    setAppropriation(parseFloat(e.target.value));
+  });
+  const txtInp = document.getElementById('in-appropriation');
+  txtInp.addEventListener('focus', e => e.target.select());
+  txtInp.addEventListener('change', e => {
+    const v = parseAppropriation(e.target.value);
+    if (Number.isNaN(v)) { e.target.classList.add('invalid'); return; }
+    setAppropriation(v);
+  });
+  // Enter key commits without losing focus
+  txtInp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
   });
   document.getElementById('state-share').addEventListener('input', e => {
     STATE.stateSharePct = parseFloat(e.target.value);
@@ -508,13 +552,10 @@ function bindControls() {
     rerender();
   });
   document.getElementById('btn-reset').addEventListener('click', () => {
-    STATE.appropriation = 3810127536;
     STATE.stateSharePct = 0.75;
     STATE.weights = { ...DEFAULT_WEIGHTS };
     STATE.applyHH = true;
     STATE.applyCharter = true;
-    document.getElementById('appropriation').value = STATE.appropriation;
-    document.getElementById('out-appropriation').textContent = fmtMoney(STATE.appropriation);
     document.getElementById('state-share').value = STATE.stateSharePct;
     document.getElementById('out-state-share').textContent = '75%';
     document.querySelectorAll('input[data-weight]').forEach(el => {
@@ -524,7 +565,7 @@ function bindControls() {
     });
     document.getElementById('apply-hh').checked = true;
     document.getElementById('apply-charter').checked = true;
-    rerender();
+    setAppropriation(3810127536);  // also re-renders
   });
 }
 
@@ -705,8 +746,7 @@ function rerender() {
 buildWeightSliders();
 bindControls();
 bindSort();
-document.getElementById('out-appropriation').textContent = fmtMoney(STATE.appropriation);
-rerender();
+setAppropriation(STATE.appropriation);  // initial sync of text input + slider + render
 """
 
 
