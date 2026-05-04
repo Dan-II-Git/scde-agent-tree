@@ -4,7 +4,8 @@ Conventions enforced here:
 - District exclusions: lookup_district_exclusions where Exclude_Scope='all_reports' (filtered out)
 - Reported_Flag = TRUE for any lea_revenues aggregation
 - SCEIS State Total / Federal Total via vw_sceis_fi_payments_classified
-- Headcount denominator: lea_headcounts.Total_Active_Enrollment for SY = FY (latest Report_Cycle)
+- Per-pupil denominator: 135-day Membership ADM via get_membership_adm
+  (sum of lea_wpu_category.ADM across BASE_K12+SPED+CTE; Barnwell consolidation FY24+)
 - Negative currency convention is applied at render time, not here
 """
 from __future__ import annotations
@@ -277,7 +278,9 @@ def get_headcounts_by_fy(district_id: str) -> dict[int, int]:
 
 
 def get_map_features(fy: int) -> dict[str, Any]:
-    """Return a GeoJSON FeatureCollection. Each feature has revenue_per_pupil for the FY."""
+    """Return a GeoJSON FeatureCollection. Each feature has revenue_per_pupil
+    for the FY. Per-pupil denominator is 135-day Membership ADM per CLAUDE.md.
+    Barnwell consolidation is applied to the ADM CTE."""
     excl = excluded_district_ids()
     placeholders = ",".join("?" * len(excl)) if excl else "''"
 
@@ -289,10 +292,28 @@ def get_map_features(fy: int) -> dict[str, Any]:
           WHERE FY = ? AND Reported_Flag = TRUE AND District_ID NOT IN ({placeholders})
           GROUP BY District_ID
         ),
-        hc AS (
-          SELECT District_ID, Total_Active_Enrollment AS headcount
-          FROM lea_headcounts
-          WHERE SY = ? AND Report_Cycle = 45
+        adm_pre AS (  -- pre-FY24: each Barnwell legacy ID is its own district
+          SELECT District_ID, SUM(ADM) AS adm
+          FROM lea_wpu_category
+          WHERE Fiscal_Year = ? AND Report_Cycle = 135
+            AND Category IN ('BASE_K12','SPED','CTE')
+            AND ? < 2024
+          GROUP BY District_ID
+        ),
+        adm_post AS (  -- FY24+: 0645 + 0648 + 0601 collapse to 0601
+          SELECT
+            CASE WHEN District_ID IN ('0645','0648') THEN '0601' ELSE District_ID END AS District_ID,
+            SUM(ADM) AS adm
+          FROM lea_wpu_category
+          WHERE Fiscal_Year = ? AND Report_Cycle = 135
+            AND Category IN ('BASE_K12','SPED','CTE')
+            AND ? >= 2024
+          GROUP BY 1
+        ),
+        adm AS (
+          SELECT District_ID, adm FROM adm_pre
+          UNION ALL
+          SELECT District_ID, adm FROM adm_post
         )
         SELECT
           g.District_ID,
@@ -301,26 +322,26 @@ def get_map_features(fy: int) -> dict[str, Any]:
           g.Centroid_Lon,
           g.Centroid_Lat,
           rev.total_revenue,
-          hc.headcount
+          adm.adm
         FROM dim_district_geometry g
         LEFT JOIN dim_district d USING (District_ID)
         LEFT JOIN rev USING (District_ID)
-        LEFT JOIN hc  USING (District_ID)
+        LEFT JOIN adm USING (District_ID)
         WHERE g.Has_Geometry = TRUE
           AND g.District_ID NOT IN ({placeholders})
         """,
-        [fy, *excl, fy, *excl],
+        [fy, *excl, fy, fy, fy, fy, *excl],
     )
 
     features = []
-    for did, name, geom_json, lon, lat, total_rev, hc in rows:
+    for did, name, geom_json, lon, lat, total_rev, adm in rows:
         try:
             geom = json.loads(geom_json) if geom_json else None
         except Exception:
             geom = None
         if not geom:
             continue
-        rev_pp = float(total_rev) / hc if (total_rev and hc) else None
+        rev_pp = float(total_rev) / float(adm) if (total_rev and adm) else None
         features.append({
             "type": "Feature",
             "geometry": geom,
@@ -328,7 +349,7 @@ def get_map_features(fy: int) -> dict[str, Any]:
                 "District_ID": did,
                 "District_Name": name,
                 "total_revenue": float(total_rev) if total_rev is not None else None,
-                "headcount": hc,
+                "membership_adm": int(round(float(adm))) if adm is not None else None,
                 "revenue_per_pupil": rev_pp,
                 "centroid": [lon, lat] if lon is not None and lat is not None else None,
             },
@@ -445,13 +466,13 @@ def get_detail_rows(district_id: str, fy: int) -> dict[str, Any]:
     reported = bool(rows) or _has_any_lea_row(district_id, fy)
 
     sceis_state, sceis_federal = get_sceis_stream_totals(district_id, fy)
-    headcount = get_headcount(district_id, fy)
+    membership_adm = get_membership_adm(district_id, fy)
     district = get_district(district_id) or {"id": district_id, "name": district_id}
 
     return {
         "district": district,
         "fy": fy,
-        "headcount": headcount,
+        "membership_adm": membership_adm,
         "items": items,
         "groups": groups,
         "reported": reported,
@@ -527,14 +548,34 @@ def get_compare_table(fy: int) -> dict[str, Any]:
         [fy, *excl],
     )
 
-    # Headcount per district for the SY (45-day per CLAUDE.md convention)
-    hc_rows = fetchall(
+    # 135-day Membership ADM per district (per CLAUDE.md). Sum the Group 1
+    # mutually-exclusive base categories; apply Barnwell consolidation
+    # FY24+ (0645+0648 -> 0601).
+    adm_rows = fetchall(
         f"""
-        SELECT District_ID, Total_Active_Enrollment
-        FROM lea_headcounts
-        WHERE SY = ? AND Report_Cycle = 45 AND District_ID NOT IN ({placeholders})
+        WITH adm_pre AS (
+          SELECT District_ID, SUM(ADM) AS adm
+          FROM lea_wpu_category
+          WHERE Fiscal_Year = ? AND Report_Cycle = 135
+            AND Category IN ('BASE_K12','SPED','CTE')
+            AND ? < 2024
+          GROUP BY District_ID
+        ),
+        adm_post AS (
+          SELECT
+            CASE WHEN District_ID IN ('0645','0648') THEN '0601' ELSE District_ID END AS District_ID,
+            SUM(ADM) AS adm
+          FROM lea_wpu_category
+          WHERE Fiscal_Year = ? AND Report_Cycle = 135
+            AND Category IN ('BASE_K12','SPED','CTE')
+            AND ? >= 2024
+          GROUP BY 1
+        )
+        SELECT District_ID, adm FROM adm_pre WHERE District_ID NOT IN ({placeholders})
+        UNION ALL
+        SELECT District_ID, adm FROM adm_post WHERE District_ID NOT IN ({placeholders})
         """,
-        [fy, *excl],
+        [fy, fy, fy, fy, *excl, *excl],
     )
 
     # District names
@@ -556,7 +597,7 @@ def get_compare_table(fy: int) -> dict[str, Any]:
             "buckets": {b: 0.0 for b in DISPLAY_BUCKETS},
             "lea_state_total": 0.0,
             "lea_federal_total": 0.0,
-            "headcount": None,
+            "membership_adm": None,
             "reported": False,
         }
         for did, name in names.items()
@@ -584,34 +625,35 @@ def get_compare_table(fy: int) -> dict[str, Any]:
         elif stream == "Federal":
             rec["buckets"]["Federal (SCEIS)"] = rec["buckets"].get("Federal (SCEIS)", 0.0) + amt_f
 
-    for did, hc in hc_rows:
+    for did, adm in adm_rows:
         rec = by_district.get(did)
-        if rec and hc is not None:
-            rec["headcount"] = int(hc)
+        if rec and adm is not None:
+            rec["membership_adm"] = int(round(float(adm)))
 
     rows = sorted(by_district.values(), key=lambda r: r["district_name"] or "")
     rows = [r for r in rows if r["reported"] or sum(r["buckets"].values()) > 0]
 
     # Compute totals + per-pupil + statewide weighted avg
     statewide = {b: 0.0 for b in DISPLAY_BUCKETS}
-    statewide_hc = 0
+    statewide_adm = 0
     statewide_dollars = 0.0
     for r in rows:
         r["grand_total"] = sum(r["buckets"].values())
-        if r["headcount"]:
-            r["per_pupil"] = {b: v / r["headcount"] for b, v in r["buckets"].items()}
-            r["per_pupil_total"] = r["grand_total"] / r["headcount"]
+        adm = r["membership_adm"]
+        if adm:
+            r["per_pupil"] = {b: v / adm for b, v in r["buckets"].items()}
+            r["per_pupil_total"] = r["grand_total"] / adm
         else:
             r["per_pupil"] = None
             r["per_pupil_total"] = None
         for b, v in r["buckets"].items():
             statewide[b] += v
         statewide_dollars += r["grand_total"]
-        if r["headcount"]:
-            statewide_hc += r["headcount"]
+        if adm:
+            statewide_adm += adm
 
-    statewide_per_pupil = {b: (v / statewide_hc if statewide_hc else None) for b, v in statewide.items()}
-    statewide_pp_total = (statewide_dollars / statewide_hc) if statewide_hc else None
+    statewide_per_pupil = {b: (v / statewide_adm if statewide_adm else None) for b, v in statewide.items()}
+    statewide_pp_total = (statewide_dollars / statewide_adm) if statewide_adm else None
 
     return {
         "fy": fy,
@@ -620,7 +662,7 @@ def get_compare_table(fy: int) -> dict[str, Any]:
         "statewide": {
             "buckets": statewide,
             "per_pupil": statewide_per_pupil,
-            "headcount": statewide_hc,
+            "membership_adm": statewide_adm,
             "grand_total": statewide_dollars,
             "per_pupil_total": statewide_pp_total,
         },
@@ -664,15 +706,15 @@ def get_multi_fy_district(district_id: str) -> dict[str, Any]:
         if sceis_federal is not None:
             buckets["Federal (SCEIS)"] = sceis_federal
 
-        hc = get_headcount(district_id, fy)
+        adm = get_membership_adm(district_id, fy)
         grand = sum(buckets.values())
         rows_per_fy.append({
             "fy": fy,
             "buckets": buckets,
             "grand_total": grand,
-            "headcount": hc,
-            "per_pupil": {b: (v / hc if hc else None) for b, v in buckets.items()},
-            "per_pupil_total": (grand / hc) if hc else None,
+            "membership_adm": adm,
+            "per_pupil": {b: (v / adm if adm else None) for b, v in buckets.items()},
+            "per_pupil_total": (grand / adm) if adm else None,
             "reported": reported,
         })
 

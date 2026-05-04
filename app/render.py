@@ -297,7 +297,7 @@ def render_detail(data: dict[str, Any]) -> str:
     d = data["district"]
     fy = data["fy"]
     groups = data.get("groups", [])
-    hc = data["headcount"]
+    adm = data["membership_adm"]
     state_sceis = data["sceis_state_total"]
     federal_sceis = data["sceis_federal_total"]
 
@@ -306,7 +306,7 @@ def render_detail(data: dict[str, Any]) -> str:
         <div class="kpi-row">
           <div class="kpi"><div class="kpi-label">SCEIS State Total</div><div class="kpi-value">{html.escape(fmt_money(state_sceis))}</div></div>
           <div class="kpi"><div class="kpi-label">SCEIS Federal Total</div><div class="kpi-value">{html.escape(fmt_money(federal_sceis))}</div></div>
-          <div class="kpi"><div class="kpi-label">Headcount (SY{fy})</div><div class="kpi-value">{html.escape(fmt_int(hc))}</div></div>
+          <div class="kpi"><div class="kpi-label">Membership ADM (FY{fy})</div><div class="kpi-value">{html.escape(fmt_int(adm))}</div></div>
         </div>
         <p class="badge danger">Not reported by district in LEA self-report. SCEIS state-side totals shown above.</p>
         """
@@ -428,8 +428,8 @@ def render_detail(data: dict[str, Any]) -> str:
           <div class="kpi"><div class="kpi-label">Grand Total (LEA)</div><div class="kpi-value">{html.escape(fmt_money(grand_total))}</div></div>
           <div class="kpi"><div class="kpi-label">SCEIS State Total</div><div class="kpi-value">{html.escape(fmt_money(state_sceis))}</div></div>
           <div class="kpi"><div class="kpi-label">SCEIS Federal Total</div><div class="kpi-value">{html.escape(fmt_money(federal_sceis))}</div></div>
-          <div class="kpi"><div class="kpi-label">Headcount (SY{fy})</div><div class="kpi-value">{html.escape(fmt_int(hc))}</div></div>
-          <div class="kpi"><div class="kpi-label">Per-Pupil (LEA)</div><div class="kpi-value">{html.escape(fmt_pp(grand_total/hc) if hc else 'n/a')}</div></div>
+          <div class="kpi"><div class="kpi-label">Membership ADM (FY{fy})</div><div class="kpi-value">{html.escape(fmt_int(adm))}</div></div>
+          <div class="kpi"><div class="kpi-label">Per-Pupil (LEA)</div><div class="kpi-value">{html.escape(fmt_pp(grand_total/adm) if adm else 'n/a')}</div></div>
         </div>
         <p class="meta" style="margin:0 0 8px 0">Click a category row to expand/collapse the underlying revenue codes. Two codes (3350, 3392) have no Level-2 parent in the funding-stream hierarchy and appear as standalone rows.</p>
         <table>
@@ -448,7 +448,7 @@ def render_detail(data: dict[str, Any]) -> str:
         notes=[
             "LEA self-report rows are filtered to <code>Reported_Flag = TRUE</code>.",
             "SCEIS State Total and Federal Total come from <code>vw_sceis_fi_payments_classified</code> and may not equal the LEA-sourced subtotals (no GL→Revenue_Code bridge yet).",
-            f"Headcount denominator is <code>lea_headcounts.Total_Active_Enrollment</code> for SY {fy} (latest Report_Cycle).",
+            f"Per-pupil denominator is 135-day Membership ADM = SUM(<code>lea_wpu_category.ADM</code>) across BASE_K12+SPED+CTE for FY{fy} (per CLAUDE.md).",
         ],
     )
 
@@ -474,17 +474,17 @@ def render_compare_table(data: dict[str, Any]) -> str:
     sw = data["statewide"]
 
     head = (
-        '<tr><th>District</th><th class="num">Headcount</th>'
+        '<tr><th>District</th><th class="num">ADM</th>'
         + ''.join(f'<th class="num">{html.escape(b)}</th>' for b in buckets)
         + '<th class="num">Total</th><th class="num">Per Pupil</th></tr>'
     )
 
     body_rows = []
     for r in rows:
-        hc = r["headcount"]
+        adm = r["membership_adm"]
         cells = [
             f'<td>{html.escape(r["district_name"] or r["district_id"])}</td>',
-            f'<td class="num">{fmt_int(hc)}</td>',
+            f'<td class="num">{fmt_int(adm)}</td>',
         ]
         for b in buckets:
             cells.append(_money_cell(r["buckets"][b]))
@@ -494,7 +494,7 @@ def render_compare_table(data: dict[str, Any]) -> str:
 
     sw_cells = [
         '<td>South Carolina (weighted)</td>',
-        f'<td class="num">{fmt_int(sw["headcount"])}</td>',
+        f'<td class="num">{fmt_int(sw["membership_adm"])}</td>',
     ]
     for b in buckets:
         sw_cells.append(_money_cell(sw["buckets"][b]))
@@ -529,7 +529,7 @@ def render_compare_chart(data: dict[str, Any]) -> str:
     fy = data["fy"]
     rows = data["rows"]
     buckets = data["buckets"]
-    # Order rows by per-pupil total desc, drop districts with no headcount
+    # Order rows by per-pupil total desc, drop districts with no ADM
     plot_rows = [r for r in rows if r.get("per_pupil_total") is not None]
     plot_rows.sort(key=lambda r: r["per_pupil_total"] or 0, reverse=True)
 
@@ -556,7 +556,7 @@ def render_compare_chart(data: dict[str, Any]) -> str:
             f'<text x="{label_w-8}" y="{y+bar_h-3}" text-anchor="end" font-size="11" fill="#2F3D4C">{html.escape(r["district_name"][:30])}</text>'
         )
         for b in buckets:
-            v_pp = (r["buckets"][b] / r["headcount"]) if r["headcount"] else 0
+            v_pp = (r["buckets"][b] / r["membership_adm"]) if r["membership_adm"] else 0
             seg_w = (v_pp / max_pp) * chart_w if max_pp > 0 else 0
             if seg_w > 0:
                 bars_svg.append(
@@ -575,7 +575,7 @@ def render_compare_chart(data: dict[str, Any]) -> str:
     footer = _methodology_footer(
         single_district=False,
         notes=[
-            "Bars are revenue per pupil (weighted by headcount).",
+            "Bars are revenue per pupil (135-day Membership ADM denominator).",
             "State and Federal segments use SCEIS; Local sub-buckets use LEA self-report (filtered Reported_Flag=TRUE).",
             "Sorted descending by total per-pupil revenue.",
         ],
@@ -608,7 +608,7 @@ def render_multi_fy(data: dict[str, Any]) -> str:
     buckets = data["buckets"]
 
     head = (
-        '<tr><th>FY</th><th class="num">Headcount</th>'
+        '<tr><th>FY</th><th class="num">ADM</th>'
         + ''.join(f'<th class="num">{html.escape(b)}</th>' for b in buckets)
         + '<th class="num">Total</th><th class="num">Per Pupil</th></tr>'
     )
@@ -616,7 +616,7 @@ def render_multi_fy(data: dict[str, Any]) -> str:
     for r in rows:
         cells = [
             f'<td>{fmt_fy(r["fy"])}</td>',
-            f'<td class="num">{fmt_int(r["headcount"])}</td>',
+            f'<td class="num">{fmt_int(r["membership_adm"])}</td>',
         ]
         for b in buckets:
             cells.append(_money_cell(r["buckets"][b]))
