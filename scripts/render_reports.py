@@ -108,7 +108,7 @@ FOOTER_COMMON = """
     <div>
       <strong style="color:var(--ink-700);">Districts with Reported_Flag=FALSE (FY2024)</strong><br>
       <strong>Jasper 01 (2701):</strong> All 263 revenue rows have <code>Reported_Flag=FALSE</code>. LEA self-report data unavailable. SCEIS-sourced totals: State $15,840,593 | Federal $11,037,318.<br>
-      <strong>Barnwell 01 (0601):</strong> Had Reported_Flag=FALSE for its own rows; revenue consolidated from legacy IDs Barnwell 45 (0645) + Barnwell 48 (0648) per FY2024+ merger rule. Headcount: Barnwell 01 SY2024 headcount (3,123) used as denominator.
+      <strong>Barnwell 01 (0601):</strong> Had Reported_Flag=FALSE for its own rows; revenue consolidated from legacy IDs Barnwell 45 (0645) + Barnwell 48 (0648) per FY2024+ merger rule. Per-pupil denominator uses consolidated Barnwell 01 FY2024 Membership ADM (sum of 0601+0645+0648 BASE_K12+SPED+CTE).
     </div>
     <div>
       <strong style="color:var(--ink-700);">Excluded Entities</strong><br>
@@ -116,8 +116,8 @@ FOOTER_COMMON = """
     </div>
     <div>
       <strong style="color:var(--ink-700);">Methodology</strong><br>
-      Per-pupil denominator: 45-day PowerSchool QDC1 headcount (<code>lea_headcounts.Total_Active_Enrollment</code>, SY=2024, Report_Cycle=45). ADM is not used.<br>
-      Statewide row: weighted average = SUM(dollars) / SUM(headcount) across all reporting districts with valid headcount. Not the arithmetic mean of district per-pupil rates.<br>
+      Per-pupil denominator: 135-day Membership ADM = SUM(<code>lea_wpu_category.ADM</code>) across BASE_K12+SPED+CTE for each district at <code>Report_Cycle=135</code>, <code>Fiscal_Year=2024</code> (per CLAUDE.md).<br>
+      Statewide row: weighted average = SUM(dollars) / SUM(ADM) across all reporting districts with valid ADM. Not the arithmetic mean of district per-pupil rates.<br>
       Negative amounts displayed as $(X,XXX) in <span style="color:var(--danger-fg);font-weight:600;">red</span>. Zero shown as $0.
     </div>
     <div>
@@ -127,7 +127,7 @@ FOOTER_COMMON = """
       FY2025 data is on HOLD (~70 of 80 districts submitted; this report does not include FY2025.
     </div>
     <div style="color:var(--ink-400);font-size:10px;">
-      FY2024 (fiscal year ending June 2024) &bull; SY2024 headcount &bull;
+      FY2024 (fiscal year ending June 2024) &bull; FY2024 Membership ADM &bull;
       Generated: 2026-04-27T15:00:00 &bull;
       Source DB: db/scde.duckdb
     </div>
@@ -146,11 +146,11 @@ def fmt_dollars(v, parens=True):
         return f'$({abs(n):,})'
     return f'${n:,}'
 
-def pp_cell(raw, hc, cls=''):
-    """Render a per-pupil cell; n/a if no headcount."""
-    if hc is None or hc == 0:
+def pp_cell(raw, adm, cls=''):
+    """Render a per-pupil cell; n/a if no ADM."""
+    if adm is None or adm == 0:
         return f'<td class="na {cls}">n/a</td>'
-    v = raw / hc
+    v = raw / adm
     n = round(v)
     if n == 0:
         return f'<td class="{cls} z">$0</td>'
@@ -246,7 +246,7 @@ td.c-grand{{background:var(--gold-100);font-weight:700}}
 
 <div class="page-header">
   <h1>FY2024 District Revenue Comparison <span class="badge">compare-table</span></h1>
-  <div class="sub">South Carolina Department of Education &bull; Fiscal Year 2024 &bull; SY2024 Headcount &bull; Per-Pupil Values</div>
+  <div class="sub">South Carolina Department of Education &bull; Fiscal Year 2024 &bull; FY2024 Membership ADM &bull; Per-Pupil Values</div>
 </div>
 
 <div class="summary-bar" id="summaryBar"></div>
@@ -256,7 +256,7 @@ td.c-grand{{background:var(--gold-100);font-weight:700}}
   <div><label>Sort by:</label>
     <select id="sortSel">
       <option value="name">Name</option>
-      <option value="headcount">Headcount</option>
+      <option value="adm">ADM</option>
       <option value="grand_total">Grand Total</option>
       <option value="state_total_sceis">State Total (SCEIS)</option>
       <option value="federal_total_sceis">Federal Total (SCEIS)</option>
@@ -281,8 +281,8 @@ td.c-grand{{background:var(--gold-100);font-weight:700}}
   <th rowspan="2" class="pin" onclick="sortBy('name')" style="text-align:left;z-index:20;min-width:210px">
     District <span class="sort-ic" id="si-name">&#9650;</span>
   </th>
-  <th rowspan="2" onclick="sortBy('headcount')" style="min-width:72px">
-    SY2024<br>Headcount<br><span class="sort-ic" id="si-headcount"></span>
+  <th rowspan="2" onclick="sortBy('adm')" style="min-width:72px">
+    FY2024<br>Membership<br>ADM<br><span class="sort-ic" id="si-adm"></span>
   </th>
   <th colspan="4" class="th-local"
     data-tippy-content="LOCAL REVENUE (LEA-sourced, Reported_Flag=TRUE): Taxes levied by the LEA (11xx), payments from non-LEA governmental units (12xx), tuition &amp; transport fees, food services, pupil activities, investments (15xx), and miscellaneous local sources. Revenue codes 1xxx and 2xxx. Sub-bucket definitions: SAC Required = 11xx | Additional = 12xx + misc 1900s | District Services = 13xx/14xx/16xx/17xx/191x/1930-31/1992 | Investments = 15xx.">
@@ -378,8 +378,8 @@ function fmt(v){{
 function pp(raw,hc){{return(hc&&hc>0)?raw/hc:null;}}
 function renderCell(d,col){{
   const cls=CCLS[col]||'';
-  if(ppMode&&!d.headcount)return`<td class="${{cls}} na">n/a</td>`;
-  const val=ppMode?pp(d[col],d.headcount):d[col];
+  if(ppMode&&!d.adm)return`<td class="${{cls}} na">n/a</td>`;
+  const val=ppMode?pp(d[col],d.adm):d[col];
   if(val===null)return`<td class="${{cls}} na">n/a</td>`;
   const n=Math.round(val);
   if(n===0)return`<td class="${{cls}} z">$0</td>`;
@@ -388,11 +388,11 @@ function renderCell(d,col){{
 }}
 function badge(d){{
   if(d.id==='2701')return' <span class="cbadge cb-jasp" data-tippy-content="Jasper 01: Reported_Flag=FALSE for all FY2024 rows. LEA data unavailable. SCEIS totals: State $15,840,593 | Federal $11,037,318. Only SCEIS-sourced columns show values; sub-buckets are $0.">NOT REPORTED</span>';
-  if(d.id==='0601')return' <span class="cbadge cb-note" data-tippy-content="Barnwell 01: FY2024 revenue consolidated from Barnwell 45 (0645) + Barnwell 48 (0648) per merger rule. Headcount: Barnwell 01 SY2024 (3,123).">MERGED</span>';
+  if(d.id==='0601')return' <span class="cbadge cb-note" data-tippy-content="Barnwell 01: FY2024 revenue consolidated from Barnwell 45 (0645) + Barnwell 48 (0648) per merger rule. ADM: consolidated Barnwell 01 FY2024 Membership.">MERGED</span>';
   return'';
 }}
 function renderSCRow(){{
-  const hc=SC.headcount;
+  const hc=SC.adm;
   let h='<tr class="sc-row"><td class="pin"><span class="dname">South Carolina Total</span><br><span class="did">Weighted Average &mdash; '+hc.toLocaleString('en-US')+' students</span></td>';
   h+='<td style="text-align:right">'+hc.toLocaleString('en-US')+'</td>';
   for(const col of COLS){{
@@ -414,14 +414,14 @@ function render(){{
   rows.sort((a,b)=>{{
     let va,vb;
     if(col==='name'){{va=a.name;vb=b.name;return asc?va.localeCompare(vb):vb.localeCompare(va);}}
-    if(col==='headcount'){{va=a.headcount??-1;vb=b.headcount??-1;}}
+    if(col==='adm'){{va=a.adm??-1;vb=b.adm??-1;}}
     else{{va=a[col]??-1;vb=b[col]??-1;}}
     return asc?va-vb:vb-va;
   }});
   let html=renderSCRow();
   for(const d of rows){{
     html+=`<tr data-id="${{d.id}}"><td class="pin"><span class="dname">${{d.name}}</span>${{badge(d)}}<br><span class="did">${{d.id}}</span></td>`;
-    const hcD=d.headcount!==null?d.headcount.toLocaleString('en-US'):'<span class="na">n/a</span>';
+    const hcD=d.adm!==null?d.adm.toLocaleString('en-US'):'<span class="na">n/a</span>';
     html+=`<td style="text-align:right">${{hcD}}</td>`;
     for(const col of COLS)html+=renderCell(d,col);
     html+='</tr>';
@@ -434,7 +434,7 @@ function sortBy(col){{
   $('sortSel').value=col;$('ordSel').value=sortAsc?'asc':'desc';updateIcons();render();
 }}
 function updateIcons(){{
-  ['name','headcount','local_sac_req','local_additional','local_dist_svc','local_investments',
+  ['name','adm','local_sac_req','local_additional','local_dist_svc','local_investments',
    'state_sac','state_proptax','state_other','state_total_sceis','federal_total_sceis','other_sources','grand_total']
   .forEach(id=>{{const e=$('si-'+id);if(e)e.innerHTML='';}} );
   const e=$('si-'+sortCol);if(e)e.innerHTML=sortAsc?'&#9650;':'&#9660;';
@@ -444,11 +444,11 @@ function reset(){{
   sortCol='name';sortAsc=true;ppMode=true;updateIcons();render();buildSummary();
 }}
 function buildSummary(){{
-  const hc=SC.headcount;
+  const hc=SC.adm;
   const f=v=>'$'+Math.round(v/hc).toLocaleString('en-US');
   $('summaryBar').innerHTML=`
     <div class="chip"><div class="val">${{(SC.grand_total/1e9).toFixed(3)}}B</div><div class="lbl">FY2024 Total Revenue</div></div>
-    <div class="chip"><div class="val">${{hc.toLocaleString('en-US')}}</div><div class="lbl">SY2024 Valid Headcount</div></div>
+    <div class="chip"><div class="val">${{hc.toLocaleString('en-US')}}</div><div class="lbl">FY2024 Valid ADM</div></div>
     <div class="chip"><div class="val">${{f(SC.grand_total)}}</div><div class="lbl">Wtd Avg Per-Pupil Total</div></div>
     <div class="chip"><div class="val">${{f(SC.local_total)}}</div><div class="lbl">Per-Pupil Local (LEA)</div></div>
     <div class="chip"><div class="val">${{f(SC.state_total_sceis)}}</div><div class="lbl">Per-Pupil State (SCEIS)</div></div>
@@ -471,9 +471,9 @@ buildSummary();updateIcons();render();
 # ═══════════════════════════════════════════════════════════════
 
 def build_compare_chart():
-    # Prepare chart data — filter to districts with valid headcount, sort by grand_total pp desc
-    chart_rows = [d for d in DATA_ROWS if d['headcount'] and d['headcount'] > 0]
-    chart_rows.sort(key=lambda d: d['grand_total']/d['headcount'], reverse=True)
+    # Prepare chart data — filter to districts with valid ADM, sort by grand_total pp desc
+    chart_rows = [d for d in DATA_ROWS if d['adm'] and d['adm'] > 0]
+    chart_rows.sort(key=lambda d: d['grand_total']/d['adm'], reverse=True)
 
     # Build per-pupil segment data for each district
     segments = ['state_sac','state_proptax','state_other',
@@ -513,9 +513,9 @@ def build_compare_chart():
     # Build JS data array
     chart_data = []
     for d in chart_rows[:80]:  # all districts
-        hc = d['headcount']
+        hc = d['adm']
         row = {
-            'name': d['name'], 'id': d['id'], 'headcount': hc,
+            'name': d['name'], 'id': d['id'], 'adm': hc,
             'grand_total_pp': round(d['grand_total'] / hc),
             'other_sources_pp': round(d['other_sources'] / hc)
         }
@@ -526,8 +526,8 @@ def build_compare_chart():
         chart_data.append(row)
 
     # SC weighted avg
-    sc_hc = SC['headcount']
-    sc_row = {'name': 'SC Weighted Avg', 'id': 'SC', 'headcount': sc_hc,
+    sc_hc = SC['adm']
+    sc_row = {'name': 'SC Weighted Avg', 'id': 'SC', 'adm': sc_hc,
               'grand_total_pp': round(SC['grand_total'] / sc_hc),
               'other_sources_pp': round(SC['other_sources'] / sc_hc)}
     for seg in segments:
@@ -572,7 +572,7 @@ body{{font-family:var(--font-sans);font-size:13px;background:var(--ink-50);color
 <body>
 <div class="page-header">
   <h1>FY2024 District Revenue — Stacked Bar Chart <span class="badge">compare-chart</span></h1>
-  <div class="sub">Per-pupil revenue by bucket &bull; SY2024 Headcount denominator &bull; Districts with valid headcount only (77 of 77)</div>
+  <div class="sub">Per-pupil revenue by bucket &bull; FY2024 Membership ADM denominator &bull; Districts with valid ADM only (77 of 77)</div>
 </div>
 <div class="note-bar" style="margin-top:0;border-top:none;padding:8px 28px;">
   <strong>Sourcing note:</strong> State sub-buckets (SAC, PropTax, Other) are <em>LEA-sourced</em> from LARS self-reports. Federal Total is <em>SCEIS-sourced</em>. State sub-buckets will not sum to SCEIS State Total — the gap is the disclosed internal inconsistency. Other Sources (5xxx bond proceeds) excluded from chart for clarity.
@@ -691,7 +691,7 @@ function drawChart(){{
       if(mx>=x&&mx<=x+BAR_W&&my>=PAD_T&&my<=PAD_T+chartH){{
         found=true;
         let html='<strong>'+d.name+'</strong><br>';
-        html+='Headcount: '+d.headcount.toLocaleString('en-US')+'<br>';
+        html+='ADM: '+d.adm.toLocaleString('en-US')+'<br>';
         [...SEGS].reverse().forEach(seg=>{{
           const ppv=d[seg+'_pp']||0;
           if(ppv>0)html+=SEG_LABELS[seg]+': $'+ppv.toLocaleString('en-US')+'/pp<br>';
@@ -729,7 +729,7 @@ setTimeout(()=>{{
 # REPORT 3,4,5 — detail mode
 # ═══════════════════════════════════════════════════════════════
 
-def build_detail_report(district_id, district_name, detail_rows, headcount,
+def build_detail_report(district_id, district_name, detail_rows, adm,
                         sceis_state, sceis_federal, reported_flag_ok, is_jasper=False):
     """Build a single detail report HTML."""
 
@@ -990,7 +990,7 @@ td,th{{padding:4px 8px;border-bottom:1px solid var(--ink-100)}}
 <body>
 <div class="page-header">
   <h1>{district_name} <span class="badge">detail</span> <span class="badge" style="background:var(--brand-slate)">FY2024</span></h1>
-  <div class="sub">District ID: {district_id} &bull; Raw Dollars (not per-pupil) &bull; Hierarchical Revenue Detail &bull; SY2024 Headcount: {headcount:,}</div>
+  <div class="sub">District ID: {district_id} &bull; Raw Dollars (not per-pupil) &bull; Hierarchical Revenue Detail &bull; FY2024 Membership ADM: {adm:,}</div>
 </div>
 <div class="kpi-bar">
   <div class="kpi"><div class="val">{fmt(lea_local) if not is_jasper else 'N/A'}</div><div class="lbl">Local Revenue (LEA)</div></div>
@@ -1075,12 +1075,16 @@ def main():
             target = BARNWELL_MERGE_SCEIS.get(did, did)
             sceis[target][stream] += float(total)
 
-    headcount_rows = con.execute("""
-        SELECT District_ID, Total_Active_Enrollment
-        FROM lea_headcounts
-        WHERE SY = 2024 AND Report_Cycle = 45
+    adm_rows = con.execute("""
+        SELECT
+          CASE WHEN District_ID IN ('0645','0648') THEN '0601' ELSE District_ID END AS District_ID,
+          SUM(ADM) AS adm
+        FROM lea_wpu_category
+        WHERE Fiscal_Year = 2024 AND Report_Cycle = 135
+          AND Category IN ('BASE_K12','SPED','CTE')
+        GROUP BY 1
     """).fetchall()
-    headcounts = {row[0]: row[1] for row in headcount_rows}
+    adm_map = {row[0]: int(round(float(row[1]))) for row in adm_rows if row[1] is not None}
 
     out_files = {}
 
@@ -1107,7 +1111,7 @@ def main():
     detail_rows = get_detail_rows(con, '2301')
     html = build_detail_report(
         '2301', 'Greenville 01', detail_rows,
-        headcounts.get('2301', 0),
+        adm_map.get('2301', 0),
         sceis.get('2301',{}).get('State', 0),
         sceis.get('2301',{}).get('Federal', 0),
         reported_flag_ok=True, is_jasper=False
@@ -1123,7 +1127,7 @@ def main():
     detail_rows = get_detail_rows(con, '2701')
     html = build_detail_report(
         '2701', 'Jasper 01', detail_rows,
-        headcounts.get('2701', 0),
+        adm_map.get('2701', 0),
         sceis.get('2701',{}).get('State', 0),
         sceis.get('2701',{}).get('Federal', 0),
         reported_flag_ok=False, is_jasper=True
@@ -1139,7 +1143,7 @@ def main():
     detail_rows = get_detail_rows(con, '1704')
     html = build_detail_report(
         '1704', 'Dillon 04', detail_rows,
-        headcounts.get('1704', 0),
+        adm_map.get('1704', 0),
         sceis.get('1704',{}).get('State', 0),
         sceis.get('1704',{}).get('Federal', 0),
         reported_flag_ok=True, is_jasper=False

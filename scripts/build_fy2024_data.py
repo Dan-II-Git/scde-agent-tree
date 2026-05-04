@@ -60,12 +60,18 @@ for district_id, code, stream_type, amount in r:
     amt = float(amount) if amount is not None else 0.0
     buckets[did][bkt] += amt
 
-hc_rows = con.execute("""
-    SELECT District_ID, Total_Active_Enrollment
-    FROM lea_headcounts
-    WHERE SY = 2024 AND Report_Cycle = 45
+# 135-day Membership ADM per district (per CLAUDE.md). Apply Barnwell
+# consolidation FY24+ at fetch time: 0645 + 0648 collapse into 0601.
+adm_rows = con.execute("""
+    SELECT
+      CASE WHEN District_ID IN ('0645','0648') THEN '0601' ELSE District_ID END AS District_ID,
+      SUM(ADM) AS adm
+    FROM lea_wpu_category
+    WHERE Fiscal_Year = 2024 AND Report_Cycle = 135
+      AND Category IN ('BASE_K12','SPED','CTE')
+    GROUP BY 1
 """).fetchall()
-headcounts = {row[0]: row[1] for row in hc_rows}
+adm_map = {row[0]: int(round(float(row[1]))) for row in adm_rows if row[1] is not None}
 
 districts_raw = con.execute("""
     SELECT District_ID, District_Name FROM dim_district
@@ -96,7 +102,7 @@ for did, stream, total in sceis_rows:
 data_rows = []
 for did, name in display_districts:
     b = buckets[did]
-    hc = headcounts.get(did)
+    adm = adm_map.get(did)
     local_sac_req = b.get('local_sac_req', 0)
     local_additional = b.get('local_additional', 0)
     local_dist_svc = b.get('local_dist_svc', 0)
@@ -112,7 +118,7 @@ for did, name in display_districts:
     lea_state_sum = state_sac + state_proptax + state_other
     state_variance = state_total_sceis - lea_state_sum
     data_rows.append({
-        'name': name, 'id': did, 'headcount': hc,
+        'name': name, 'id': did, 'adm': adm,
         'local_sac_req': local_sac_req, 'local_additional': local_additional,
         'local_dist_svc': local_dist_svc, 'local_investments': local_investments,
         'local_total': local_total,
@@ -123,21 +129,21 @@ for did, name in display_districts:
         'lea_state_sum': lea_state_sum, 'state_variance': state_variance
     })
 
-valid_rows = [d for d in data_rows if d['headcount'] and d['headcount'] > 0]
-sc_hc = sum(d['headcount'] for d in valid_rows)
+valid_rows = [d for d in data_rows if d['adm'] and d['adm'] > 0]
+sc_adm = sum(d['adm'] for d in valid_rows)
 sc_cols = ['local_sac_req','local_additional','local_dist_svc','local_investments',
            'local_total','state_sac','state_proptax','state_other',
            'state_total_sceis','federal_total_sceis','other_sources','grand_total',
            'lea_state_sum','state_variance']
 sc_sums = {col: sum(d[col] for d in valid_rows) for col in sc_cols}
-SC = {'name': 'South Carolina Total', 'id': 'SC', 'headcount': sc_hc}
+SC = {'name': 'South Carolina Total', 'id': 'SC', 'adm': sc_adm}
 SC.update(sc_sums)
 
 print("=== Sanity check ===")
 print(f"Districts displayed: {len(data_rows)}")
-print(f"SC headcount: {sc_hc:,}")
+print(f"SC Membership ADM: {sc_adm:,}")
 print(f"SC grand total: {SC['grand_total']:,.0f}")
-print(f"SC per-pupil grand: ${SC['grand_total']/sc_hc:,.0f}")
+print(f"SC per-pupil grand: ${SC['grand_total']/sc_adm:,.0f}")
 
 print("\n=== Top 5 state variance (SCEIS minus LEA sub-buckets) ===")
 sorted_var = sorted(data_rows, key=lambda d: abs(d['state_variance']), reverse=True)
