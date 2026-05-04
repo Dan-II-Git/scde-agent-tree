@@ -263,18 +263,6 @@ def fetch_charter_breakdown(con, district_id):
         ORDER BY FY, Category
     """, [district_id]).fetchall()
 
-    # 45-day district-total headcount per SY (per CLAUDE.md per-pupil
-    # convention). Charter authorizer headcount is not broken out by mode,
-    # so both B&M and Virtual rows divide by the same district-total —
-    # the comparative discount between modes is preserved because the
-    # denominator cancels.
-    hc_rows = con.execute("""
-        SELECT SY, Total_Active_Enrollment
-        FROM lea_headcounts
-        WHERE District_ID = ? AND Report_Cycle = 45
-    """, [district_id]).fetchall()
-    headcounts = {int(sy): int(hc) for sy, hc in hc_rows if hc is not None}
-
     # Authorizer's effective per-WPU rate from historical SAC actuals.
     # SAC = sum(3103, 3503, 3541) / total WPU for each FY.
     rates = {}
@@ -298,26 +286,19 @@ def fetch_charter_breakdown(con, district_id):
     # Pick most-recent reliable rate (FY24 is the cleanest)
     effective_rate = rates.get(2024) or rates.get(2023) or 3366.0
 
-    # Build per-FY-per-mode display rows
+    # Build per-FY-per-mode display rows. per_pupil is intentionally not
+    # computed: the rendered table masks $/pupil at the mode level because
+    # lea_headcounts is not broken out by charter mode.
     breakdown = []
     for fy, mode, adm, wpu in modes:
         wpu_f = float(wpu) if wpu is not None else 0.0
         wpu_per_adm = wpu_f / adm if adm else None
         implied_state_aid = wpu_f * effective_rate if wpu_f else 0
-        # Per-pupil uses the authorizer's 45-day district-total headcount
-        # (per CLAUDE.md). Headcount is not broken out by charter mode, so
-        # both B&M and Virtual rows for a given FY share the same denominator.
-        # FY26 headcount has not been collected yet, so fall back to the
-        # most recent available SY when the target FY is missing.
-        district_hc = headcounts.get(int(fy))
-        if district_hc is None and headcounts:
-            district_hc = headcounts[max(headcounts.keys())]
-        per_pupil = implied_state_aid / district_hc if district_hc else None
         breakdown.append({
             "fy": fy, "mode": mode, "adm": adm, "wpu": int(wpu_f),
             "wpu_per_adm": wpu_per_adm,
             "implied_state_aid": int(implied_state_aid),
-            "per_pupil": int(per_pupil) if per_pupil else None,
+            "per_pupil": None,
         })
 
     return {
@@ -506,17 +487,16 @@ def _render_charter_panel(breakdown):
     for fy in sorted(by_fy.keys()):
         bm = by_fy[fy].get("Charter_BM")
         vt = by_fy[fy].get("Charter_VIRT")
-        bm_per = bm["per_pupil"] if bm else None
-        vt_per = vt["per_pupil"] if vt else None
         bm_aid = bm["implied_state_aid"] if bm else None
         vt_aid = vt["implied_state_aid"] if vt else None
         bm_weight = bm["wpu_per_adm"] if bm and bm["wpu_per_adm"] else None
         vt_weight = vt["wpu_per_adm"] if vt and vt["wpu_per_adm"] else None
-        # Discount: virtual per-pupil as % of B&M per-pupil
-        discount = None
-        if bm_per and vt_per:
-            discount = round(100 * (1 - vt_per / bm_per))
 
+        # $/pupil is masked at the mode level: lea_headcounts is not broken
+        # out by charter mode, so any per-mode per-pupil number would either
+        # mislead (district-total denominator) or violate the 45-day-headcount
+        # convention (per-mode ADM). The column header is retained for layout
+        # consistency; cells render '—'.
         fy_blocks.append(f"""
         <div class="charter-fy-card">
           <h3>FY{fy % 100}</h3>
@@ -532,7 +512,7 @@ def _render_charter_panel(breakdown):
                 <td class="num">{bm['wpu'] if bm else '—':,}</td>
                 <td class="num">{f"{bm_weight:.3f}" if bm_weight else '—'}</td>
                 <td class="num">{fmt_currency(bm_aid)}</td>
-                <td class="num">{fmt_currency(bm_per)}</td>
+                <td class="num">—</td>
               </tr>
               <tr>
                 <td><strong>Virtual</strong></td>
@@ -540,11 +520,10 @@ def _render_charter_panel(breakdown):
                 <td class="num">{vt['wpu'] if vt else '—':,}</td>
                 <td class="num">{f"{vt_weight:.3f}" if vt_weight else '—'}</td>
                 <td class="num">{fmt_currency(vt_aid)}</td>
-                <td class="num">{fmt_currency(vt_per)}</td>
+                <td class="num">—</td>
               </tr>
             </tbody>
           </table>
-          {f'<p class="discount-note">Virtual pupils receive ~<strong>{discount}%</strong> less state aid per pupil than B&amp;M pupils.</p>' if discount else ''}
         </div>
         """)
 
@@ -555,13 +534,11 @@ def _render_charter_panel(breakdown):
         if rate_fy else ""
     )
     per_pupil_note = (
-        "$ / pupil uses the authorizer's 45-day total headcount "
-        "(<code>lea_headcounts.Total_Active_Enrollment</code>) as the denominator. "
-        "Headcount is not broken out by charter mode, so B&amp;M and Virtual rows "
-        "share the same authorizer-wide denominator within a given FY — the Virtual "
-        "row reads as low because Virtual aid is normalized against all enrolled "
-        "students, not just Virtual ones. FY26 falls back to the most recent "
-        "available SY headcount since FY26 enrollment has not been collected yet. "
+        "$ / pupil is intentionally masked at the mode level: "
+        "<code>lea_headcounts</code> is not broken out by charter mode, "
+        "so a per-mode per-pupil number would either mislead (district-total "
+        "denominator inflates the gap) or violate the 45-day-headcount "
+        "convention (per-mode ADM). Compare modes via Implied State Aid instead. "
     )
 
     return f"""
