@@ -214,6 +214,10 @@ REPORT_CSS = """
 .tippy-content .code-tip-short { font-size: 12px; color: var(--neutral-fg); margin-bottom: 8px; line-height: 1.4; }
 .tippy-content .code-tip-full { font-size: 11px; color: var(--neutral-fg); line-height: 1.45; border-top: 1px solid var(--border-subtle); padding-top: 6px; max-height: 180px; overflow-y: auto; }
 .tippy-content .code-tip-full-toggle { font-size: 11px; color: var(--brand-tertiary); cursor: pointer; text-decoration: underline; background: none; border: none; padding: 0; font-family: inherit; }
+.scde-report table.sortable thead th { cursor: pointer; user-select: none; }
+.scde-report table.sortable thead th:hover { background: rgba(67,113,139,0.10); }
+.scde-report table.sortable thead th[data-sort="asc"]::after  { content: " \\25B2"; font-size: 0.75em; opacity: 0.85; }
+.scde-report table.sortable thead th[data-sort="desc"]::after { content: " \\25BC"; font-size: 0.75em; opacity: 0.85; }
 """
 
 TIPPY_BUNDLE = """
@@ -263,6 +267,68 @@ TIPPY_BUNDLE = """
     });
   };
   window.__scdeInfoTippyInit();
+})();
+</script>
+"""
+
+# Compare-table sort script. Embedded into the rendered HTML; runs via
+# dashboard.js' executeInlineScripts() after the report HTML is inserted
+# into the output panel. tfoot rows (statewide weighted-average) are
+# untouched by sorting; tbody rows reorder in place. Numeric cells use
+# accounting parens for negatives — parseValue handles that and "n/a".
+COMPARE_SORT_SCRIPT = """
+<script>
+(function() {
+  var table = document.querySelector('.scde-report table.sortable');
+  if (!table) return;
+  var thead = table.querySelector('thead');
+  var tbody = table.querySelector('tbody');
+  if (!thead || !tbody) return;
+  var headers = thead.querySelectorAll('th');
+  if (!headers.length) return;
+
+  function parseValue(td, numeric) {
+    var text = (td.textContent || '').trim();
+    if (text === '' || /^n\\/a$/i.test(text) || text === '—') return null;
+    if (!numeric) return text.toLowerCase();
+    var isNeg = /\\(.*\\)/.test(text);
+    var num = parseFloat(text.replace(/[$,()\\u2014\\s]/g, '')) || 0;
+    return isNeg ? -num : num;
+  }
+
+  var current = { col: -1, dir: 1 };
+
+  Array.prototype.forEach.call(headers, function(th, idx) {
+    var numeric = th.classList.contains('num');
+    th.setAttribute('role', 'button');
+    th.setAttribute('tabindex', '0');
+    var handler = function() {
+      var dir = (current.col === idx)
+        ? -current.dir
+        : (numeric ? -1 : 1);
+      current = { col: idx, dir: dir };
+
+      var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+      rows.sort(function(a, b) {
+        var av = parseValue(a.cells[idx], numeric);
+        var bv = parseValue(b.cells[idx], numeric);
+        if (av === null && bv === null) return 0;
+        if (av === null) return 1;
+        if (bv === null) return -1;
+        if (av < bv) return -1 * dir;
+        if (av > bv) return  1 * dir;
+        return 0;
+      });
+      rows.forEach(function(r) { tbody.appendChild(r); });
+
+      Array.prototype.forEach.call(headers, function(h) { h.removeAttribute('data-sort'); });
+      th.setAttribute('data-sort', dir > 0 ? 'asc' : 'desc');
+    };
+    th.addEventListener('click', handler);
+    th.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); }
+    });
+  });
 })();
 </script>
 """
@@ -500,7 +566,7 @@ def render_compare_table(data: dict[str, Any]) -> str:
         sw_cells.append(_money_cell(sw["buckets"][b]))
     sw_cells.append(_money_cell(sw["grand_total"]))
     sw_cells.append(_pp_cell(sw["per_pupil_total"]))
-    body_rows.append(f'<tr class="statewide">{"".join(sw_cells)}</tr>')
+    sw_row = f'<tr class="statewide">{"".join(sw_cells)}</tr>'
 
     footer = _methodology_footer(
         single_district=False,
@@ -508,6 +574,7 @@ def render_compare_table(data: dict[str, Any]) -> str:
             "LEA-sourced sub-buckets are filtered to <code>Reported_Flag = TRUE</code>.",
             "State and Federal totals come from SCEIS (<code>vw_sceis_fi_payments_classified</code>); LEA-sourced State/Federal may not equal these (no GL→Revenue_Code bridge yet).",
             "Statewide totals use weighted averages (sum of dollars / sum of pupils), not arithmetic means.",
+            "Click any column header to sort; click again to reverse. Numeric columns default to descending; the District column defaults to ascending. The South Carolina (weighted) row is pinned and never re-sorted.",
         ],
     )
 
@@ -515,12 +582,14 @@ def render_compare_table(data: dict[str, Any]) -> str:
     <div class="scde-report">
       <h1>District Revenue Comparison — {fmt_fy(fy)}</h1>
       <div class="meta">All districts · generated {date.today().isoformat()}</div>
-      <table>
+      <table class="sortable">
         <thead>{head}</thead>
         <tbody>{''.join(body_rows)}</tbody>
+        <tfoot>{sw_row}</tfoot>
       </table>
       {footer}
     </div>
+    {COMPARE_SORT_SCRIPT}
     """)
 
 
