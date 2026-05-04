@@ -104,15 +104,23 @@ SELECT
     COALESCE(lb.local_inv, 0),
     COALESCE(ss.state_sceis, 0),
     COALESCE(sf.fed_sceis,   0),
-    h.Total_Active_Enrollment,
+    adm.adm_membership,
     COALESCE(rf.is_reported, 0)
 FROM dim_district d
 LEFT JOIN lea_bucketed lb  ON d.District_ID = lb.District_ID
 LEFT JOIN sceis_state ss   ON d.District_ID = ss.District_ID
 LEFT JOIN sceis_fed   sf   ON d.District_ID = sf.District_ID
-LEFT JOIN lea_headcounts h
-       ON d.District_ID = h.District_ID
-      AND h.SY = 2025 AND h.Report_Cycle = 45
+LEFT JOIN (
+    -- 135-day Membership ADM = sum of Group 1 base categories (BASE_K12+SPED+CTE).
+    -- Barnwell rule: 0645+0648 collapse into 0601 for FY24+.
+    SELECT
+      CASE WHEN District_ID IN ('0645','0648') THEN '0601' ELSE District_ID END AS District_ID,
+      SUM(ADM) AS adm_membership
+    FROM lea_wpu_category
+    WHERE Fiscal_Year = 2025 AND Report_Cycle = 135
+      AND Category IN ('BASE_K12','SPED','CTE')
+    GROUP BY 1
+) adm ON d.District_ID = adm.District_ID
 LEFT JOIN reported_flag rf ON d.District_ID = rf.District_ID
 WHERE d.District_ID NOT IN ({EXCL_SUBQ})
   AND d.District_ID NOT IN ('0645', '0648')
@@ -122,13 +130,14 @@ ORDER BY d.District_ID
 # Build district dicts
 districts = []
 for r in rows:
-    did, dname, sac, add_, ds, inv, state_s, fed_s, hc, reported = r
+    did, dname, sac, add_, ds, inv, state_s, fed_s, adm, reported = r
     sac     = float(sac     or 0)
     add_    = float(add_    or 0)
     ds      = float(ds      or 0)
     inv     = float(inv     or 0)
     state_s = float(state_s or 0)
     fed_s   = float(fed_s   or 0)
+    adm     = int(round(float(adm))) if adm is not None else None
 
     if not reported:
         status = "unreported"
@@ -144,24 +153,24 @@ for r in rows:
         "id": did, "name": dname,
         "sac": sac, "add": add_, "ds": ds, "inv": inv,
         "state": state_s, "fed": fed_s, "grand": grand,
-        "hc": hc, "status": status, "is_charter": is_charter,
+        "adm": adm, "status": status, "is_charter": is_charter,
     })
 
 # ---------------------------------------------------------------------------
-# Statewide weighted averages (only districts that have headcount)
+# Statewide weighted averages (only districts that have ADM)
 # ---------------------------------------------------------------------------
-thc  = sum(d["hc"]    for d in districts if d["hc"])
-tsac = sum(d["sac"]   for d in districts if d["hc"])
-tadd = sum(d["add"]   for d in districts if d["hc"])
-tds  = sum(d["ds"]    for d in districts if d["hc"])
-tinv = sum(d["inv"]   for d in districts if d["hc"])
-tst  = sum(d["state"] for d in districts if d["hc"])
-tfd  = sum(d["fed"]   for d in districts if d["hc"])
+tadm = sum(d["adm"]   for d in districts if d["adm"])
+tsac = sum(d["sac"]   for d in districts if d["adm"])
+tadd = sum(d["add"]   for d in districts if d["adm"])
+tds  = sum(d["ds"]    for d in districts if d["adm"])
+tinv = sum(d["inv"]   for d in districts if d["adm"])
+tst  = sum(d["state"] for d in districts if d["adm"])
+tfd  = sum(d["fed"]   for d in districts if d["adm"])
 tgr  = tsac + tadd + tds + tinv + tst + tfd
 
-wsac = round(tsac / thc);  wadd = round(tadd / thc);  wds  = round(tds  / thc)
-winv = round(tinv / thc);  wst  = round(tst  / thc);  wfd  = round(tfd  / thc)
-wgr  = round(tgr  / thc)
+wsac = round(tsac / tadm);  wadd = round(tadd / tadm);  wds  = round(tds  / tadm)
+winv = round(tinv / tadm);  wst  = round(tst  / tadm);  wfd  = round(tfd  / tadm)
+wgr  = round(tgr  / tadm)
 
 num_reported = sum(1 for d in districts if d["status"] == "reported")
 num_total    = len(districts)
@@ -213,8 +222,8 @@ def pp(dollars, hc):
     return dollars / hc
 
 
-def pp_cell(dollars, hc, extra=""):
-    val = pp(dollars, hc)
+def pp_cell(dollars, adm, extra=""):
+    val = pp(dollars, adm)
     cls = ("num " + extra).strip()
     if val is None:
         return f'<td class="{cls}"><span class="na">n/a</span></td>'
@@ -222,7 +231,7 @@ def pp_cell(dollars, hc, extra=""):
 
 
 def build_row(d):
-    hc = d["hc"]
+    adm = d["adm"]
     status = d["status"]
 
     row_cls = ""
@@ -254,7 +263,7 @@ def build_row(d):
             ">Partial</span>"
         )
 
-    hc_display = f"{hc:,}" if hc else "n/a"
+    adm_display = f"{adm:,}" if adm else "n/a"
 
     if status == "unreported":
         sac_td = '<td class="num"><span class="na">n/a</span></td>'
@@ -262,15 +271,15 @@ def build_row(d):
         ds_td  = '<td class="num"><span class="na">n/a</span></td>'
         inv_td = '<td class="num"><span class="na">n/a</span></td>'
     else:
-        sac_td = pp_cell(d["sac"], hc)
-        add_td = pp_cell(d["add"], hc)
-        ds_td  = pp_cell(d["ds"],  hc)
-        inv_td = pp_cell(d["inv"], hc)
+        sac_td = pp_cell(d["sac"], adm)
+        add_td = pp_cell(d["add"], adm)
+        ds_td  = pp_cell(d["ds"],  adm)
+        inv_td = pp_cell(d["inv"], adm)
 
-    st_td = pp_cell(d["state"], hc, "sceis-col")
-    fd_td = pp_cell(d["fed"],   hc, "fed-col")
+    st_td = pp_cell(d["state"], adm, "sceis-col")
+    fd_td = pp_cell(d["fed"],   adm, "fed-col")
 
-    gr_pp = pp(d["grand"], hc)
+    gr_pp = pp(d["grand"], adm)
     if gr_pp is not None:
         gr_td = f'<td class="num grand-total-col">{fmt(gr_pp)}</td>'
     else:
@@ -279,7 +288,7 @@ def build_row(d):
     return (
         f'    <tr{row_cls}>\n'
         f'      <td class="name-cell">{d["name"]}{badge}<br>'
-        f'<span class="district-sub">{d["id"]} &bull; {hc_display} pupils</span></td>\n'
+        f'<span class="district-sub">{d["id"]} &bull; {adm_display} ADM</span></td>\n'
         f'      {sac_td}{add_td}{ds_td}{inv_td}\n'
         f'      {st_td}\n'
         f'      {fd_td}\n'
@@ -293,7 +302,7 @@ table_rows_html = "\n".join(build_row(d) for d in districts)
 sc_total_row = (
     '    <tr class="row-total">\n'
     f'      <td class="name-cell">South Carolina Total<br>'
-    f'<span class="district-sub">Weighted average &bull; {thc:,} pupils</span></td>\n'
+    f'<span class="district-sub">Weighted average &bull; {tadm:,} ADM</span></td>\n'
     f'      <td class="num">{fmt(wsac)}</td>'
     f'<td class="num">{fmt(wadd)}</td>'
     f'<td class="num">{fmt(wds)}</td>'
@@ -611,7 +620,7 @@ html = """\
     <div class="header-fy">FY 2024&#x2013;25</div>
     <div>Summary District Revenue Comparison</div>
     <div style="font-size:11px;margin-top:4px;color:rgba(255,255,255,0.50)">
-      Per Pupil &#x2014; 45-day Headcount &#x2014; Operating Revenue &#x2014; compare-table mode
+      Per Pupil &#x2014; 135-day Membership ADM &#x2014; Operating Revenue &#x2014; compare-table mode
     </div>
   </div>
 </header>
@@ -641,7 +650,7 @@ html += f"""
     <div class="kpi-card">
       <div class="kpi-label">SC Grand Total (PP)</div>
       <div class="kpi-value">{fmt(wgr)}</div>
-      <div class="kpi-sub">Weighted avg &#x2022; {thc:,} pupils</div>
+      <div class="kpi-sub">Weighted avg &#x2022; {tadm:,} ADM</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">State Total PP (SCEIS)</div>
@@ -664,9 +673,9 @@ html += f"""
       <div class="kpi-sub">Full LEA submission &#x2022; FY2024-25</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Statewide Headcount</div>
-      <div class="kpi-value">{thc:,}</div>
-      <div class="kpi-sub">45-day enrollment &#x2022; SY2025</div>
+      <div class="kpi-label">Statewide Membership ADM</div>
+      <div class="kpi-value">{tadm:,}</div>
+      <div class="kpi-sub">135-day membership &#x2022; FY2025</div>
     </div>
   </div>
 
@@ -677,7 +686,7 @@ html += f"""
         <tr class="group-row">
           <th class="name-head local-group" rowspan="2">District</th>
           <th colspan="4" class="local-group"
-              data-tippy-content="Local revenue from LEA self-report (Revenue FY2024-25.xlsx), filtered Reported_Flag=TRUE. Per-pupil using 45-day headcount (SY2025). Bucket assignment from code_district_funding_streams.Category with parent-level fallback.">
+              data-tippy-content="Local revenue from LEA self-report (Revenue FY2024-25.xlsx), filtered Reported_Flag=TRUE. Per-pupil using 135-day Membership ADM (FY2025). Bucket assignment from code_district_funding_streams.Category with parent-level fallback.">
             Local Revenue (LEA Self-Report)
           </th>
           <th colspan="1" class="state-group"
@@ -715,7 +724,7 @@ html += f"""
             <span style="font-weight:400;opacity:0.75">(SCEIS SOR)</span>
           </th>
           <th class="gt-col"
-              data-tippy-content="Grand Total per pupil: Local Taxes and Fees + Local Additional + Local District Services + Local Investments + State Total (SCEIS) + Federal Total (SCEIS), divided by 45-day enrollment headcount.">
+              data-tippy-content="Grand Total per pupil: Local Taxes and Fees + Local Additional + Local District Services + Local Investments + State Total (SCEIS) + Federal Total (SCEIS), divided by 135-day Membership ADM (sum of BASE_K12+SPED+CTE in lea_wpu_category).">
             Grand Total<br>Per Pupil
           </th>
         </tr>
@@ -752,15 +761,19 @@ html += f"""
       <code>code_district_funding_streams</code>; leaf-level codes with NULL Category are resolved to
       their Level-2 parent&#x2019;s Category using <code>LEFT(Revenue_Code, 2) || &#x27;00&#x27;</code> lookup.</p>
 
-      <p><strong>Headcount denominator:</strong>
-      <code>lea_headcounts.Total_Active_Enrollment</code>, <code>SY = 2025</code>,
-      <code>Report_Cycle = 45</code> (45-day count, not 135-day ADM).</p>
+      <p><strong>Per-pupil denominator (135-day Membership ADM):</strong>
+      <code>SUM(lea_wpu_category.ADM)</code> across the Group 1 mutually-exclusive base
+      categories <code>BASE_K12 + SPED + CTE</code> for each district at
+      <code>Report_Cycle = 135</code>, <code>Fiscal_Year = 2025</code>.
+      This is the same number that appears as the <code>MembershipTotals:</code> row
+      in the BSC ADM source files. Per CLAUDE.md, ADM (not 45-day headcount) is the
+      per-pupil denominator across all comparison and per-pupil reporting.</p>
 
       <p><strong>Barnwell consolidation (effective FY2024+):</strong>
       Districts 0645 (Barnwell 45) and 0648 (Barnwell 48) are consolidated into 0601 (Barnwell 01).
       Their SCEIS federal receipts ($2,839,253 and $682,601 respectively) are summed into the
       Barnwell 01 row. Their LEA revenue data shows <code>Reported_Flag = FALSE</code> for FY25;
-      Barnwell 01 headcount (3,088 pupils) is used as the per-pupil denominator.</p>
+      Barnwell 01 ADM is used as the per-pupil denominator.</p>
 
       <p><strong>District exclusion filter:</strong>
       Applied via <code>lookup_district_exclusions WHERE Exclude_Scope = &#x27;all_reports&#x27;</code>
@@ -821,7 +834,7 @@ html += f"""
           (special-purpose school; not a traditional LEA)</li>
       </ul>
       <p><strong>Impact of exclusion (per data-quality validation):</strong>
-      approximately 782 pupils excluded (0.10% of statewide 45-day headcount);
+      approximately 782 pupils excluded (0.10% of statewide 135-day Membership ADM);
       $0 LEA-reported revenue across all 6 entities for FY25;
       $38,010 in SCEIS-attributed payments (0.0006% of district-attributed SCEIS payments for FY25).
       The previous run of this report incorrectly included 5205 and 5207 in the non-reporter list;
@@ -877,8 +890,8 @@ html += f"""
         <strong>Exclusion source:</strong>
         <code>lookup_district_exclusions</code> (Exclude_Scope=all_reports, FY range 2025) &nbsp;&#x2022;&nbsp;
         <strong>Currency:</strong> accounting parentheses for negatives, no decimals &nbsp;&#x2022;&nbsp;
-        <strong>Denominator:</strong> 45-day headcount (not 135-day ADM) &nbsp;&#x2022;&nbsp;
-        <strong>Statewide row:</strong> weighted average (sum dollars / sum pupils, not arithmetic mean)
+        <strong>Denominator:</strong> 135-day Membership ADM (sum BASE_K12+SPED+CTE in lea_wpu_category) &nbsp;&#x2022;&nbsp;
+        <strong>Statewide row:</strong> weighted average (sum dollars / sum ADM, not arithmetic mean)
       </p>
       <p>
         <strong>Column sources:</strong>
