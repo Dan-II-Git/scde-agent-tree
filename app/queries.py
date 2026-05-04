@@ -115,14 +115,14 @@ DISPLAY_BUCKETS = [
 
 
 def get_headcount(district_id: str, fy: int) -> int | None:
-    """Headcount for the SY matching FY (FY end-year). Latest Report_Cycle wins."""
+    """45-day Total_Active_Enrollment for the SY matching FY (FY end-year).
+    45-day is the policy/operational denominator per CLAUDE.md; ADM is the
+    funding metric, not the per-pupil denominator."""
     row = fetchone(
         """
         SELECT Total_Active_Enrollment
         FROM lea_headcounts
-        WHERE District_ID = ? AND SY = ?
-        ORDER BY Report_Cycle DESC
-        LIMIT 1
+        WHERE District_ID = ? AND SY = ? AND Report_Cycle = 45
         """,
         [district_id, fy],
     )
@@ -130,16 +130,12 @@ def get_headcount(district_id: str, fy: int) -> int | None:
 
 
 def get_headcounts_by_fy(district_id: str) -> dict[int, int]:
+    """45-day Total_Active_Enrollment by SY for one district."""
     rows = fetchall(
         """
         SELECT SY, Total_Active_Enrollment
-        FROM (
-          SELECT SY, Total_Active_Enrollment,
-                 ROW_NUMBER() OVER (PARTITION BY SY ORDER BY Report_Cycle DESC) AS rn
-          FROM lea_headcounts
-          WHERE District_ID = ?
-        )
-        WHERE rn = 1
+        FROM lea_headcounts
+        WHERE District_ID = ? AND Report_Cycle = 45
         ORDER BY SY
         """,
         [district_id],
@@ -167,12 +163,8 @@ def get_map_features(fy: int) -> dict[str, Any]:
         ),
         hc AS (
           SELECT District_ID, Total_Active_Enrollment AS headcount
-          FROM (
-            SELECT District_ID, Total_Active_Enrollment,
-                   ROW_NUMBER() OVER (PARTITION BY District_ID ORDER BY Report_Cycle DESC) AS rn
-            FROM lea_headcounts
-            WHERE SY = ?
-          ) WHERE rn = 1
+          FROM lea_headcounts
+          WHERE SY = ? AND Report_Cycle = 45
         )
         SELECT
           g.District_ID,
@@ -407,17 +399,12 @@ def get_compare_table(fy: int) -> dict[str, Any]:
         [fy, *excl],
     )
 
-    # Headcount per district for the SY
+    # Headcount per district for the SY (45-day per CLAUDE.md convention)
     hc_rows = fetchall(
         f"""
         SELECT District_ID, Total_Active_Enrollment
-        FROM (
-          SELECT District_ID, Total_Active_Enrollment,
-                 ROW_NUMBER() OVER (PARTITION BY District_ID ORDER BY Report_Cycle DESC) AS rn
-          FROM lea_headcounts
-          WHERE SY = ? AND District_ID NOT IN ({placeholders})
-        )
-        WHERE rn = 1
+        FROM lea_headcounts
+        WHERE SY = ? AND Report_Cycle = 45 AND District_ID NOT IN ({placeholders})
         """,
         [fy, *excl],
     )

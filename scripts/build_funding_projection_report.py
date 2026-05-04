@@ -263,6 +263,18 @@ def fetch_charter_breakdown(con, district_id):
         ORDER BY FY, Category
     """, [district_id]).fetchall()
 
+    # 45-day district-total headcount per SY (per CLAUDE.md per-pupil
+    # convention). Charter authorizer headcount is not broken out by mode,
+    # so both B&M and Virtual rows divide by the same district-total —
+    # the comparative discount between modes is preserved because the
+    # denominator cancels.
+    hc_rows = con.execute("""
+        SELECT SY, Total_Active_Enrollment
+        FROM lea_headcounts
+        WHERE District_ID = ? AND Report_Cycle = 45
+    """, [district_id]).fetchall()
+    headcounts = {int(sy): int(hc) for sy, hc in hc_rows if hc is not None}
+
     # Authorizer's effective per-WPU rate from historical SAC actuals.
     # SAC = sum(3103, 3503, 3541) / total WPU for each FY.
     rates = {}
@@ -292,7 +304,15 @@ def fetch_charter_breakdown(con, district_id):
         wpu_f = float(wpu) if wpu is not None else 0.0
         wpu_per_adm = wpu_f / adm if adm else None
         implied_state_aid = wpu_f * effective_rate if wpu_f else 0
-        per_pupil = implied_state_aid / adm if adm else None
+        # Per-pupil uses the authorizer's 45-day district-total headcount
+        # (per CLAUDE.md). Headcount is not broken out by charter mode, so
+        # both B&M and Virtual rows for a given FY share the same denominator.
+        # FY26 headcount has not been collected yet, so fall back to the
+        # most recent available SY when the target FY is missing.
+        district_hc = headcounts.get(int(fy))
+        if district_hc is None and headcounts:
+            district_hc = headcounts[max(headcounts.keys())]
+        per_pupil = implied_state_aid / district_hc if district_hc else None
         breakdown.append({
             "fy": fy, "mode": mode, "adm": adm, "wpu": int(wpu_f),
             "wpu_per_adm": wpu_per_adm,
@@ -534,6 +554,15 @@ def _render_charter_panel(breakdown):
         f"(codes 3103, 3503, 3541) divided by 135-day total WPU. "
         if rate_fy else ""
     )
+    per_pupil_note = (
+        "$ / pupil uses the authorizer's 45-day total headcount "
+        "(<code>lea_headcounts.Total_Active_Enrollment</code>) as the denominator. "
+        "Headcount is not broken out by charter mode, so B&amp;M and Virtual rows "
+        "share the same authorizer-wide denominator within a given FY — the Virtual "
+        "row reads as low because Virtual aid is normalized against all enrolled "
+        "students, not just Virtual ones. FY26 falls back to the most recent "
+        "available SY headcount since FY26 enrollment has not been collected yet. "
+    )
 
     return f"""
     <section class="charter-card">
@@ -548,7 +577,7 @@ def _render_charter_panel(breakdown):
         {''.join(fy_blocks)}
       </div>
       <p class="charter-context small">
-        {rate_note}
+        {rate_note}{per_pupil_note}
         Source: <code>lea_wpu_allocations</code> rows where <code>Category IN ('Charter_BM', 'Charter_VIRT')</code>
         loaded from <code>WPU04524.xlsx</code> (FY24) and <code>WPU04526.xlsx</code> (FY26).
         FY24 file uses column names "Charter Brick WPU" / "Charter Virtual WPU"; FY26 uses "B&amp;M WPU" / "VIRT WPU".

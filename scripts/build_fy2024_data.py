@@ -62,7 +62,8 @@ for district_id, code, stream_type, amount in r:
 
 hc_rows = con.execute("""
     SELECT District_ID, Total_Active_Enrollment
-    FROM lea_headcounts WHERE SY=2024
+    FROM lea_headcounts
+    WHERE SY = 2024 AND Report_Cycle = 45
 """).fetchall()
 headcounts = {row[0]: row[1] for row in hc_rows}
 

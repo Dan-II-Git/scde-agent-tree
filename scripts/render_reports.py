@@ -1076,7 +1076,9 @@ def main():
             sceis[target][stream] += float(total)
 
     headcount_rows = con.execute("""
-        SELECT District_ID, Total_Active_Enrollment FROM lea_headcounts WHERE SY=2024
+        SELECT District_ID, Total_Active_Enrollment
+        FROM lea_headcounts
+        WHERE SY = 2024 AND Report_Cycle = 45
     """).fetchall()
     headcounts = {row[0]: row[1] for row in headcount_rows}
 
