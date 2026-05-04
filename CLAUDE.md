@@ -63,10 +63,17 @@ SCEIS (local taxes/fees, district-side operational detail). See the
   surface the discrepancy as a data-quality caveat rather than picking
   one silently. Report agents that mix sources must document which
   bucket came from which source in the methodology footer.
-- **Per-pupil normalization.** Reports default to 45-day Headcount
-  (PowerSchool QDC1) as the denominator, NOT 135-day ADM. ADM is the
-  funding metric; Headcount is the operational/policy view, which is
-  what the comparison reports use.
+- **Per-pupil normalization.** Reports use 135-day Membership ADM as
+  the denominator. Source: sum of `lea_wpu_category.ADM` across the
+  Group 1 mutually-exclusive base categories (`BASE_K12`, `SPED`, `CTE`)
+  for each `(District_ID, Fiscal_Year, Report_Cycle=135)`. This equals
+  the `MembershipTotals:` row in the BSC ADM source files. Each FY uses
+  its own ADM; do not hold a single FY's ADM constant across years.
+  Use the centralized helper `app/queries.get_membership_adm(district_id, fy)`
+  rather than recomputing the sum inline. The 45-day Headcount table
+  (`lea_headcounts.Total_Active_Enrollment`, PowerSchool QDC1) remains
+  available for non-per-pupil uses (raw enrollment context, partial-FY
+  indicators, demographic breakdowns).
 - **Statewide aggregates** are weighted averages (sum of dollars over
   sum of pupils), not the arithmetic mean of district per-pupil rates.
 - **Negatives use accounting parentheses.** Render negative currency as

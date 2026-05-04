@@ -110,14 +110,141 @@ DISPLAY_BUCKETS = [
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Headcount
+# Per-pupil denominator — 135-day Membership ADM
+# ──────────────────────────────────────────────────────────────────────
+#
+# Per CLAUDE.md, the per-pupil denominator across all reports is the
+# 135-day Membership ADM = SUM(ADM) over the Group 1 mutually-exclusive
+# base categories (BASE_K12, SPED, CTE) in `lea_wpu_category`. This is
+# the same number that appears as the `MembershipTotals:` row in the
+# BSC ADM source files.
+#
+# Barnwell rule: in FY2024+, districts 0645 and 0648 are reported as
+# part of consolidated 0601. The FY25 source data already consolidates;
+# the FY24 source still has them split. The helpers below sum across
+# all three IDs into 0601 from FY24 onward, returning None for 0645 and
+# 0648 when asked for those IDs in FY24+.
+
+_MEMBERSHIP_BASE_CATS = ("BASE_K12", "SPED", "CTE")
+_BARNWELL_CONSOLIDATION_FROM_FY = 2024
+_BARNWELL_LEGACY_IDS = ("0645", "0648")
+_BARNWELL_MERGED_ID = "0601"
+
+
+def get_membership_adm(district_id: str, fy: int) -> int | None:
+    """135-day Membership ADM for one district in one FY. Returns None
+    if no rows exist (e.g., charter authorizers in FYs before they had
+    category data, or legacy Barnwell IDs in FY24+)."""
+    if (fy >= _BARNWELL_CONSOLIDATION_FROM_FY
+            and district_id in _BARNWELL_LEGACY_IDS):
+        return None
+    if (fy >= _BARNWELL_CONSOLIDATION_FROM_FY
+            and district_id == _BARNWELL_MERGED_ID):
+        ids = (_BARNWELL_MERGED_ID,) + _BARNWELL_LEGACY_IDS
+        placeholders = ",".join("?" * len(ids))
+        cat_placeholders = ",".join("?" * len(_MEMBERSHIP_BASE_CATS))
+        row = fetchone(
+            f"""
+            SELECT SUM(ADM)
+            FROM lea_wpu_category
+            WHERE District_ID IN ({placeholders})
+              AND Fiscal_Year = ?
+              AND Report_Cycle = 135
+              AND Category IN ({cat_placeholders})
+            """,
+            [*ids, fy, *_MEMBERSHIP_BASE_CATS],
+        )
+    else:
+        cat_placeholders = ",".join("?" * len(_MEMBERSHIP_BASE_CATS))
+        row = fetchone(
+            f"""
+            SELECT SUM(ADM)
+            FROM lea_wpu_category
+            WHERE District_ID = ?
+              AND Fiscal_Year = ?
+              AND Report_Cycle = 135
+              AND Category IN ({cat_placeholders})
+            """,
+            [district_id, fy, *_MEMBERSHIP_BASE_CATS],
+        )
+    val = row[0] if row else None
+    return int(round(float(val))) if val is not None else None
+
+
+def get_membership_adm_by_fy(district_id: str) -> dict[int, int]:
+    """135-day Membership ADM by FY for one district. Applies Barnwell
+    consolidation: when district_id='0601', sums 0601+0645+0648 for
+    FY24+; pre-FY24 returns 0601's own row only. Asking for legacy
+    0645 or 0648 returns only their pre-FY24 rows."""
+    cat_placeholders = ",".join("?" * len(_MEMBERSHIP_BASE_CATS))
+
+    if district_id == _BARNWELL_MERGED_ID:
+        ids = (_BARNWELL_MERGED_ID,) + _BARNWELL_LEGACY_IDS
+        id_placeholders = ",".join("?" * len(ids))
+        # Pre-consolidation FYs: only 0601's own rows (none, in practice).
+        # Post-consolidation FYs (FY24+): sum across all three IDs.
+        rows = fetchall(
+            f"""
+            SELECT Fiscal_Year, SUM(ADM)
+            FROM lea_wpu_category
+            WHERE District_ID = ? AND Fiscal_Year < ?
+              AND Report_Cycle = 135 AND Category IN ({cat_placeholders})
+            GROUP BY Fiscal_Year
+            UNION ALL
+            SELECT Fiscal_Year, SUM(ADM)
+            FROM lea_wpu_category
+            WHERE District_ID IN ({id_placeholders}) AND Fiscal_Year >= ?
+              AND Report_Cycle = 135 AND Category IN ({cat_placeholders})
+            GROUP BY Fiscal_Year
+            ORDER BY Fiscal_Year
+            """,
+            [_BARNWELL_MERGED_ID, _BARNWELL_CONSOLIDATION_FROM_FY,
+             *_MEMBERSHIP_BASE_CATS,
+             *ids, _BARNWELL_CONSOLIDATION_FROM_FY,
+             *_MEMBERSHIP_BASE_CATS],
+        )
+    elif district_id in _BARNWELL_LEGACY_IDS:
+        rows = fetchall(
+            f"""
+            SELECT Fiscal_Year, SUM(ADM)
+            FROM lea_wpu_category
+            WHERE District_ID = ?
+              AND Fiscal_Year < ?
+              AND Report_Cycle = 135
+              AND Category IN ({cat_placeholders})
+            GROUP BY Fiscal_Year
+            ORDER BY Fiscal_Year
+            """,
+            [district_id, _BARNWELL_CONSOLIDATION_FROM_FY,
+             *_MEMBERSHIP_BASE_CATS],
+        )
+    else:
+        rows = fetchall(
+            f"""
+            SELECT Fiscal_Year, SUM(ADM)
+            FROM lea_wpu_category
+            WHERE District_ID = ?
+              AND Report_Cycle = 135
+              AND Category IN ({cat_placeholders})
+            GROUP BY Fiscal_Year
+            ORDER BY Fiscal_Year
+            """,
+            [district_id, *_MEMBERSHIP_BASE_CATS],
+        )
+    return {int(r[0]): int(round(float(r[1]))) for r in rows if r[1] is not None}
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Headcount — kept for non-per-pupil uses (raw enrollment context,
+# partial-FY indicators, demographic breakdowns). DO NOT use as a
+# per-pupil denominator; use get_membership_adm instead.
 # ──────────────────────────────────────────────────────────────────────
 
 
 def get_headcount(district_id: str, fy: int) -> int | None:
-    """45-day Total_Active_Enrollment for the SY matching FY (FY end-year).
-    45-day is the policy/operational denominator per CLAUDE.md; ADM is the
-    funding metric, not the per-pupil denominator."""
+    """45-day Total_Active_Enrollment for the SY matching FY. Use only
+    for non-per-pupil contexts (raw enrollment, partial-FY indicator).
+    For per-pupil math, use get_membership_adm."""
     row = fetchone(
         """
         SELECT Total_Active_Enrollment
@@ -130,7 +257,8 @@ def get_headcount(district_id: str, fy: int) -> int | None:
 
 
 def get_headcounts_by_fy(district_id: str) -> dict[int, int]:
-    """45-day Total_Active_Enrollment by SY for one district."""
+    """45-day Total_Active_Enrollment by SY for one district. Use only
+    for non-per-pupil contexts."""
     rows = fetchall(
         """
         SELECT SY, Total_Active_Enrollment
