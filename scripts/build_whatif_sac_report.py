@@ -63,23 +63,30 @@ def parse_args():
     return p.parse_args()
 
 
-def _fetch_headcounts(base_fy: int) -> dict[str, int]:
-    """45-day Total_Active_Enrollment per District_ID for SY=base_fy.
-    Applies the Barnwell consolidation rule for FY24+ (sum 0645+0648 into
-    0601) so the universe matches `whatif_sac._fetch_inputs`. Districts
-    with no headcount row are returned as 0."""
+def _fetch_membership_adm(base_fy: int) -> dict[str, int]:
+    """135-day Membership ADM per District_ID for FY=base_fy. Per CLAUDE.md
+    this is the per-pupil denominator: SUM(lea_wpu_category.ADM) across the
+    Group 1 mutually-exclusive base categories BASE_K12+SPED+CTE. Applies
+    Barnwell consolidation FY24+ (0645+0648 into 0601) so the universe
+    matches `whatif_sac._fetch_inputs`. Districts with no row return 0."""
     rows = fetchall(
-        "SELECT District_ID, Total_Active_Enrollment FROM lea_headcounts "
-        "WHERE SY = ? AND Report_Cycle = 45",
+        """
+        SELECT District_ID, SUM(ADM)
+        FROM lea_wpu_category
+        WHERE Fiscal_Year = ? AND Report_Cycle = 135
+          AND Category IN ('BASE_K12','SPED','CTE')
+        GROUP BY District_ID
+        """,
         [base_fy],
     )
-    hc: dict[str, int] = {did: int(n or 0) for did, n in rows}
+    adm: dict[str, int] = {did: int(round(float(n))) if n is not None else 0
+                            for did, n in rows}
     if base_fy >= whatif_sac.BARNWELL_CONSOLIDATION_FROM_FY:
         merged = whatif_sac.BARNWELL_MERGED_ID
         for legacy in whatif_sac.BARNWELL_LEGACY_IDS:
-            if legacy in hc:
-                hc[merged] = hc.get(merged, 0) + hc.pop(legacy)
-    return hc
+            if legacy in adm:
+                adm[merged] = adm.get(merged, 0) + adm.pop(legacy)
+    return adm
 
 
 def _slim_inputs(base_fy: int) -> list[dict]:
@@ -88,11 +95,11 @@ def _slim_inputs(base_fy: int) -> list[dict]:
     float precision (no rounding) so the JS engine reproduces Python
     output to the cent — see tests/test_whatif_sac_parity.py.
 
-    Headcount is presentation-only (chart Y axis and circle area). The
-    formula does not consume it; it is carried through alongside the
+    Membership ADM is presentation-only (chart Y axis and circle area).
+    The formula does not consume it; it is carried through alongside the
     formula inputs so the embedded JS can render `$ aid per pupil`."""
     raw = whatif_sac._fetch_inputs(base_fy)
-    headcounts = _fetch_headcounts(base_fy)
+    membership = _fetch_membership_adm(base_fy)
     out: list[dict] = []
     for did, rec in raw.items():
         out.append({
@@ -103,7 +110,7 @@ def _slim_inputs(base_fy: int) -> list[dict]:
             "adm": {k: float(v) for k, v in rec["category_adm"].items()},
             "floor": float(rec["hold_harmless_floor"]),
             "actualBaseFY": float(rec["actual_sac_base_fy"]),
-            "headcount": headcounts.get(did, 0),
+            "membershipAdm": membership.get(did, 0),
         })
     out.sort(key=lambda r: r["name"])
     return out
@@ -217,8 +224,8 @@ def build_html(inputs: list[dict], base_fy: int, init_appropriation: float) -> s
 
       <h2>District Allocations</h2>
       <div class="chart-container">
-        <svg id="chart-scatter" viewBox="0 0 720 340" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Per-pupil state aid vs ITA scatter, sized by headcount"></svg>
-        <figcaption>X = ITA (relative property wealth) · Y = state aid per active student (45-day headcount, SY=base FY) · circle area ∝ district headcount. Charter authorizers (ITA = 0) cluster at left.</figcaption>
+        <svg id="chart-scatter" viewBox="0 0 720 340" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Per-pupil state aid vs ITA scatter, sized by Membership ADM"></svg>
+        <figcaption>X = ITA (relative property wealth) · Y = state aid per pupil (135-day Membership ADM, FY=base FY) · circle area ∝ district Membership ADM. Charter authorizers (ITA = 0) cluster at left.</figcaption>
       </div>
 
       <div class="table-wrap">
@@ -426,7 +433,7 @@ function runScenario(state) {
     return {
       id: d.id, name: d.name, isCharter: d.isCharter, ita: d.ita,
       totalWpu, catWpu, floor: d.floor, actualBaseFY: d.actualBaseFY,
-      headcount: d.headcount || 0,
+      membershipAdm: d.membershipAdm || 0,
     };
   });
 
@@ -448,7 +455,7 @@ function runScenario(state) {
     r.floorKicked = state.applyHH && r.floor > r.formulaAid;
     r.delta = r.finalAid - r.actualBaseFY;
     r.perWpuFinal = r.totalWpu > 0 ? r.finalAid / r.totalWpu : 0;
-    r.perHeadcount = r.headcount > 0 ? r.finalAid / r.headcount : null;
+    r.perMembershipAdm = r.membershipAdm > 0 ? r.finalAid / r.membershipAdm : null;
     sumFormula += r.formulaAid;
     sumFinal += r.finalAid;
     if (r.floorKicked) floorCount++;
@@ -717,17 +724,17 @@ function renderChart(rows) {
   const plotW = W - padL - padR, plotH = H - padT - padB;
 
   const xMax = 0.18; // most ITA values are < 0.15; cap for readability
-  // Y axis = state aid per active student (45-day headcount). Districts
-  // with headcount=0 (none currently in the FY25 universe) drop out of
+  // Y axis = state aid per pupil (135-day Membership ADM). Districts
+  // with adm=0 (none currently in the FY25 universe) drop out of
   // the y-scaling but are still drawn at y=0 with a hollow marker.
-  const yVals = rows.map(r => r.perHeadcount).filter(v => Number.isFinite(v) && v > 0);
+  const yVals = rows.map(r => r.perMembershipAdm).filter(v => Number.isFinite(v) && v > 0);
   if (yVals.length === 0) { svg.innerHTML = ''; return; }
   const yMax = Math.max(...yVals) * 1.05;
-  const hcMax = Math.max(...rows.map(r => r.headcount || 0));
+  const admMax = Math.max(...rows.map(r => r.membershipAdm || 0));
 
   const x = v => padL + Math.min(v, xMax) / xMax * plotW;
   const y = v => padT + plotH - (v / yMax) * plotH;
-  const radius = h => hcMax > 0 ? 2 + Math.sqrt(h / hcMax) * 14 : 4;
+  const radius = h => admMax > 0 ? 2 + Math.sqrt(h / admMax) * 14 : 4;
 
   const parts = [];
   // axes
@@ -749,18 +756,18 @@ function renderChart(rows) {
   }
   // axis titles
   parts.push(`<text x="${padL+plotW/2}" y="${H-6}" text-anchor="middle" font-size="11" fill="${'""" + TOK['brand_secondary'] + r"""'}">ITA (Index of Taxpaying Ability)</text>`);
-  parts.push(`<text x="14" y="${padT+plotH/2}" transform="rotate(-90 14 ${padT+plotH/2})" text-anchor="middle" font-size="11" fill="${'""" + TOK['brand_secondary'] + r"""'}">State aid per pupil (45-day headcount)</text>`);
+  parts.push(`<text x="14" y="${padT+plotH/2}" transform="rotate(-90 14 ${padT+plotH/2})" text-anchor="middle" font-size="11" fill="${'""" + TOK['brand_secondary'] + r"""'}">State aid per pupil (135-day Membership ADM)</text>`);
 
   // dots
   for (const r of rows) {
-    if (!Number.isFinite(r.perHeadcount) || r.perHeadcount <= 0) continue;
+    if (!Number.isFinite(r.perMembershipAdm) || r.perMembershipAdm <= 0) continue;
     const cx = x(r.ita);
-    const cy = y(r.perHeadcount);
-    const rr = radius(r.headcount);
+    const cy = y(r.perMembershipAdm);
+    const rr = radius(r.membershipAdm);
     const fill = r.delta >= 0 ? '""" + TOK['success'] + r"""' : '""" + TOK['danger'] + r"""';
     const stroke = r.floorKicked ? '""" + TOK['brand_accent'] + r"""' : 'rgba(47,61,76,0.4)';
     const sw = r.floorKicked ? 2 : 1;
-    const tip = `${r.name} · Headcount ${fmtInt(r.headcount)} · ITA ${fmtIta(r.ita)} · Final ${fmtMoney(r.finalAid)} (${fmtMoney(r.perHeadcount)}/pupil · Δ ${(r.delta>=0?'+':'')+fmtMoney(r.delta)})`;
+    const tip = `${r.name} · ADM ${fmtInt(r.membershipAdm)} · ITA ${fmtIta(r.ita)} · Final ${fmtMoney(r.finalAid)} (${fmtMoney(r.perMembershipAdm)}/pupil · Δ ${(r.delta>=0?'+':'')+fmtMoney(r.delta)})`;
     parts.push(`<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${rr.toFixed(1)}" fill="${fill}" fill-opacity="0.55" stroke="${stroke}" stroke-width="${sw}"><title>${tip.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</title></circle>`);
   }
   svg.innerHTML = parts.join('');

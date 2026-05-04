@@ -288,7 +288,7 @@ def fetch_charter_breakdown(con, district_id):
 
     # Build per-FY-per-mode display rows. per_pupil is intentionally not
     # computed: the rendered table masks $/pupil at the mode level because
-    # lea_headcounts is not broken out by charter mode.
+    # neither lea_wpu_category nor lea_headcounts breaks out by charter mode.
     breakdown = []
     for fy, mode, adm, wpu in modes:
         wpu_f = float(wpu) if wpu is not None else 0.0
@@ -492,11 +492,11 @@ def _render_charter_panel(breakdown):
         bm_weight = bm["wpu_per_adm"] if bm and bm["wpu_per_adm"] else None
         vt_weight = vt["wpu_per_adm"] if vt and vt["wpu_per_adm"] else None
 
-        # $/pupil is masked at the mode level: lea_headcounts is not broken
-        # out by charter mode, so any per-mode per-pupil number would either
-        # mislead (district-total denominator) or violate the 45-day-headcount
-        # convention (per-mode ADM). The column header is retained for layout
-        # consistency; cells render '—'.
+        # $/pupil is masked at the mode level: neither lea_wpu_category nor
+        # lea_headcounts breaks out by charter mode, so any per-mode per-pupil
+        # number would mislead (district-total denominator inflates the
+        # apparent gap between B&M and Virtual). The column header is retained
+        # for layout consistency; cells render '—'.
         fy_blocks.append(f"""
         <div class="charter-fy-card">
           <h3>FY{fy % 100}</h3>
@@ -534,11 +534,11 @@ def _render_charter_panel(breakdown):
         if rate_fy else ""
     )
     per_pupil_note = (
-        "$ / pupil is intentionally masked at the mode level: "
-        "<code>lea_headcounts</code> is not broken out by charter mode, "
-        "so a per-mode per-pupil number would either mislead (district-total "
-        "denominator inflates the gap) or violate the 45-day-headcount "
-        "convention (per-mode ADM). Compare modes via Implied State Aid instead. "
+        "$ / pupil is intentionally masked at the mode level: neither "
+        "<code>lea_wpu_category</code> nor <code>lea_headcounts</code> breaks "
+        "out by charter mode, so a per-mode per-pupil number would mislead "
+        "(district-total denominator would inflate the apparent gap between "
+        "B&amp;M and Virtual). Compare modes via Implied State Aid instead. "
     )
 
     return f"""

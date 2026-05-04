@@ -18,7 +18,7 @@ DISTRICT_NAME = 'Greenville 01 — Greenville County Schools'
 FY            = 2025
 FY_LABEL      = 'FY2024-25'
 SY_LABEL      = 'SY 2024-25'
-HEADCOUNT     = 76398
+MEMBERSHIP_ADM = 75615  # FY25 Membership ADM (BASE_K12+SPED+CTE) per CLAUDE.md
 SCEIS_STATE   = 510312747.72
 SCEIS_FEDERAL = 52482156.52
 SCEIS_OTHER   = 3331152.73
@@ -941,7 +941,7 @@ col.col-amt   {{ width: 140px; }}
   <p class="sub">
     {DISTRICT_NAME} &nbsp;&bull;&nbsp; {FY_LABEL} &nbsp;&bull;&nbsp;
     District ID: {DISTRICT_ID} &nbsp;&bull;&nbsp;
-    Headcount (45-day QDC1): {HEADCOUNT:,} &nbsp;&bull;&nbsp;
+    Membership ADM (135-day): {MEMBERSHIP_ADM:,} &nbsp;&bull;&nbsp;
     Generated: {GENERATION_TS}
   </p>
 </header>
@@ -992,7 +992,7 @@ col.col-amt   {{ width: 140px; }}
   <strong>FY2024-25 data-quality note:</strong>
   As of {REPORT_DATE}, approximately 70 of 80 South Carolina districts have
   submitted nonzero LEA self-report data for FY2024-25. Greenville 01 has
-  <strong>submitted ({HEADCOUNT:,} headcount, {fmt(total_local)} local revenue)</strong>
+  <strong>submitted ({MEMBERSHIP_ADM:,} ADM, {fmt(total_local)} local revenue)</strong>
   and is included here. Statewide comparisons using this FY should be
   interpreted with caution until the submission cycle is confirmed complete.
   FY2022-23 and FY2023-24 are the recommended validated fiscal years for
@@ -1098,10 +1098,10 @@ col.col-amt   {{ width: 140px; }}
   Neither figure is wrong; they measure different things.
 </p>
 
-<h3>Headcount &amp; per-pupil normalization</h3>
+<h3>Membership ADM &amp; per-pupil normalization</h3>
 <p>
-  Headcount denominator: <strong>{HEADCOUNT:,}</strong> (45-day PowerSchool QDC1,
-  <code>lea_headcounts</code>, <code>SY=2025</code>, <code>Report_Cycle=45</code>).
+  Per-pupil denominator: <strong>{MEMBERSHIP_ADM:,}</strong> (135-day Membership ADM = SUM
+  of <code>lea_wpu_category.ADM</code> across BASE_K12+SPED+CTE for FY=2025, Report_Cycle=135).
   Per-pupil figures are <strong>not shown</strong> in this detail-mode report
   (detail mode uses raw dollars per the specification).
   For per-pupil figures see the <code>compare-table</code> or
@@ -1175,7 +1175,7 @@ col.col-amt   {{ width: 140px; }}
   <dt>District</dt><dd>Greenville 01 (2301) — Greenville County Schools</dd>
   <dt>Fiscal year</dt><dd>FY2024-25 (FY=2025)</dd>
   <dt>School year</dt><dd>SY 2024-25 (SY=2025)</dd>
-  <dt>Headcount source</dt><dd>lea_headcounts, 45-day QDC1</dd>
+  <dt>ADM source</dt><dd>lea_wpu_category, 135-day Membership (BASE_K12+SPED+CTE)</dd>
   <dt>SCEIS source</dt><dd>FI Payments by Vendor FY25.xlsx via vw_sceis_fi_payments_classified</dd>
   <dt>LEA source</dt><dd>Revenue FY2024-25.xlsx via lea_revenues</dd>
   <dt>Generated</dt><dd>{GENERATION_TS}</dd>
