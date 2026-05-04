@@ -578,6 +578,18 @@ html = """\
     .var-table th { background: var(--sem-neutral-bg); font-weight: 600; }
     .var-table td.num { text-align: right; font-family: var(--font-mono); }
 
+    /* Sortable column headers — click to sort, click again to reverse.
+       Visual cue: pointer cursor on hover, ▲/▼ glyph on the active column. */
+    table.compare thead th.sortable {
+      cursor: pointer;
+      user-select: none;
+    }
+    table.compare thead th.sortable:hover {
+      background: rgba(255,255,255,0.08);
+    }
+    table.compare thead th.sortable[data-sort="asc"]::after  { content: " \25B2"; font-size: 0.7em; opacity: 0.85; }
+    table.compare thead th.sortable[data-sort="desc"]::after { content: " \25BC"; font-size: 0.7em; opacity: 0.85; }
+
     @media print {
       .page-header, table.compare thead th, tr.row-total td { print-color-adjust: exact; }
     }
@@ -893,6 +905,72 @@ TIPPY_SCRIPT = """
         interactive: false,
       });
     }
+
+    // ── Sortable comparison table ──────────────────────────────────────
+    // The table has a two-row thead: row 0 has the District header
+    // (rowspan=2) plus group headers, row 1 has the seven actual column
+    // heads. Wire click-to-sort on District (col 0) and on each row-1 th
+    // (cols 1–7). Numeric cells contain currency strings like "$1,234"
+    // or accounting parens "$(1,234)" or "n/a" — parseValue handles all.
+    (function() {
+      var table = document.querySelector('table.compare');
+      if (!table) return;
+      var headRows = table.querySelectorAll('thead tr');
+      if (headRows.length < 2) return;
+      var tbody = table.querySelector('tbody');
+      if (!tbody) return;
+
+      // Build the sortable header set: District first, then row-1 columns.
+      var sortable = [];
+      var districtTh = headRows[0].querySelector('th.name-head');
+      if (districtTh) sortable.push({ th: districtTh, col: 0, numeric: false });
+      Array.prototype.forEach.call(headRows[1].children, function(th, i) {
+        sortable.push({ th: th, col: i + 1, numeric: true });
+      });
+
+      function parseValue(td, numeric) {
+        var text = (td.textContent || '').trim();
+        if (text === '' || /^n\\/a$/i.test(text) || text === '—') return null;
+        if (!numeric) return text.toLowerCase();
+        var isNeg = /\\(.*\\)/.test(text);
+        var num = parseFloat(text.replace(/[$,()—\\s]/g, '')) || 0;
+        return isNeg ? -num : num;
+      }
+
+      var current = { col: -1, dir: 1 };
+
+      sortable.forEach(function(entry) {
+        entry.th.classList.add('sortable');
+        entry.th.setAttribute('role', 'button');
+        entry.th.setAttribute('tabindex', '0');
+        var handler = function() {
+          var dir = (current.col === entry.col)
+            ? -current.dir
+            : (entry.numeric ? -1 : 1);  // numeric defaults desc, text asc
+          current = { col: entry.col, dir: dir };
+
+          var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+          rows.sort(function(a, b) {
+            var av = parseValue(a.cells[entry.col], entry.numeric);
+            var bv = parseValue(b.cells[entry.col], entry.numeric);
+            if (av === null && bv === null) return 0;
+            if (av === null) return 1;
+            if (bv === null) return -1;
+            if (av < bv) return -1 * dir;
+            if (av > bv) return  1 * dir;
+            return 0;
+          });
+          rows.forEach(function(r) { tbody.appendChild(r); });
+
+          sortable.forEach(function(s) { s.th.removeAttribute('data-sort'); });
+          entry.th.setAttribute('data-sort', dir > 0 ? 'asc' : 'desc');
+        };
+        entry.th.addEventListener('click', handler);
+        entry.th.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); }
+        });
+      });
+    })();
   });
 </script>
 
