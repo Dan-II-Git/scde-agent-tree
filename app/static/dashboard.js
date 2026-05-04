@@ -26,9 +26,13 @@ let GEO_LAYER = null;
     DISTRICTS = ds;
     YEARS = ys;
     setStatus("ok", `LEA: FY${ys.lea[0]}–FY${ys.lea.at(-1)} · SCEIS: FY${ys.sceis[0]}–FY${ys.sceis.at(-1)}`);
-    populateDropdowns();
+    await populateDropdowns();
     initMap();
     bindActions();
+    // Default report: Single-FY Comparison (table mode) for the latest FY.
+    // Runs after dropdowns are populated so compare-fy and the table radio
+    // already hold their default values.
+    runReport("compare").catch((e) => console.error("default report failed:", e));
   } catch (exc) {
     setStatus("err", "init failed");
     console.error(exc);
@@ -133,7 +137,7 @@ async function loadMap(fy) {
           <div class="map-tooltip">
             <strong>${escapeHtml(p.District_Name)}</strong> <small>(${escapeHtml(p.District_ID)})</small><br>
             Revenue: <span class="num">${fmtMoney(p.total_revenue)}</span><br>
-            Headcount: <span class="num">${fmtInt(p.headcount)}</span><br>
+            Membership ADM: <span class="num">${fmtInt(p.membership_adm)}</span><br>
             Per pupil: <span class="num">${fmtMoney(p.revenue_per_pupil)}</span>
           </div>`;
         layer.bindTooltip(tooltip, { sticky: true });
