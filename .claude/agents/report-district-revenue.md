@@ -70,16 +70,18 @@ the handbook even if amount is zero — matches the source PDF exactly.
 
 ## Hard rules
 
-1. **Headcount is the per-pupil denominator** (not ADM). Use
-   `lea_headcounts.Total_Active_Enrollment` for the same SY as the FY
-   being reported. SY year aligns with FY end year (FY2024 → SY 2024).
-   If headcount is missing for a district in that year, leave the row
-   in the table but mark the per-pupil cells "n/a". Never substitute ADM.
+1. **135-day Membership ADM is the per-pupil denominator.** Use the
+   centralized helper `app.queries.get_membership_adm(district_id, fy)`
+   (sum of `lea_wpu_category.ADM` across BASE_K12+SPED+CTE at
+   Report_Cycle=135 for the matching FY). The helper applies Barnwell
+   consolidation FY24+ automatically. If ADM is missing for a district
+   in that year, leave the row in the table but mark the per-pupil cells
+   "n/a". The 45-day headcount table is preserved but is NOT the
+   per-pupil denominator.
 
 2. **Statewide row uses weighted average.** Compute as
-   `SUM(revenue_dollars) / SUM(headcount)` across districts, NOT
-   the mean of per-pupil rates. The PDF shows $18,346 for the SC Total
-   grand-total — that's weighted, not arithmetic.
+   `SUM(revenue_dollars) / SUM(membership_adm)` across districts, NOT
+   the mean of per-pupil rates.
 
 3. **Detail mode is raw dollars; comparison modes are per-pupil.**
    Do not switch units between modes — the PDFs are explicit on this.
@@ -156,7 +158,7 @@ For all modes:
    (District_ID, FY) and substituted into the displayed "State Total"
    and "Federal Total" cells. Always recompute the mart when source
    data changed; check `data/uploads/` mtimes.
-3. Invoke `lea-data` for headcount (compare modes only).
+3. Invoke `lea-data` for Membership ADM (compare modes only) — call `get_membership_adm` / `get_membership_adm_by_fy` from `app.queries`.
 4. Compose HTML using the Look Deeper design system
    (`docs/style/look-deeper-design-system.html`) as the canonical
    reference for tokens and component patterns.
@@ -216,7 +218,7 @@ Single self-contained .html file. Conventions:
     La Howe), 5207 (SC School for the Deaf and the Blind), 5208 (DJJ),
     5209 (DOC), 5364 (Governor's School for the Arts and Humanities),
     5395 (Governor's School for Science and Mathematics). The methodology
-    footer should disclose the count and dollar/headcount impact, not
+    footer should disclose the count and dollar/ADM impact, not
     re-render a hardcoded list.
   - **FY/SY**, generation timestamp, the data quality verdict from
     the most recent `data-quality` invocation.
@@ -276,7 +278,7 @@ Path: `outputs/reports/district_revenue_<mode>_<FY>[_<district>]_<timestamp>.htm
 Return three things to whoever called you:
 - The path to the generated HTML file
 - A 3-line summary: mode, FY, row count or district name
-- Any warnings (uncategorized codes, missing headcounts, missing
+- Any warnings (uncategorized codes, missing ADM, missing
   charter rows). The user should not have to open the HTML to know
   if the data was complete.
 
