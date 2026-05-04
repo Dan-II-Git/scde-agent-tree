@@ -85,7 +85,9 @@
       "Bash(curl *)",
       "Bash(netstat -ano)",
       "Bash(powershell.exe -Command 'Stop-Process -Id 16952 -Force -ErrorAction SilentlyContinue; Get-Process | Where-Object { $_.ProcessName -eq '\\\\''python'\\\\'' } | Format-Table Id, ProcessName, StartTime')",
-      "Bash(powershell.exe *)"
+      "Bash(powershell.exe *)",
+      "Bash(.venv/Scripts/python *)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python *)"
     ]
   }
 }
