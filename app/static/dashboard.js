@@ -5,6 +5,7 @@ const outputEl = document.getElementById("output");
 
 let DISTRICTS = [];
 let YEARS = { lea: [], sceis: [], current_sceis: null };
+let WHATIF = { base_fy: null, available_fys: [] };
 let MAP = null;
 let GEO_LAYER = null;
 
@@ -30,7 +31,7 @@ let GEO_LAYER = null;
     initMap();
     bindActions();
     // Default report: Single-FY Comparison (table mode) for the latest FY.
-    // Runs after dropdowns are populated so compare-fy and the table radio
+    // Runs after dropdowns are populated so map-fy and the table radio
     // already hold their default values.
     runReport("compare").catch((e) => console.error("default report failed:", e));
   } catch (exc) {
@@ -45,53 +46,51 @@ function setStatus(kind, msg) {
 }
 
 async function populateDropdowns() {
-  const districtSelects = ["detail-district", "multify-district", "ytd-district"];
   const districtOpts = DISTRICTS.map(
     (d) => `<option value="${d.id}">${escapeHtml(d.name)}</option>`,
   ).join("");
-  for (const id of districtSelects) {
-    document.getElementById(id).innerHTML = districtOpts;
-  }
+  document.getElementById("map-district").innerHTML = districtOpts;
   // Default to Greenville if present
   const greenville = DISTRICTS.find((d) => /greenville/i.test(d.name));
   if (greenville) {
-    for (const id of districtSelects) {
-      document.getElementById(id).value = greenville.id;
-    }
+    document.getElementById("map-district").value = greenville.id;
   }
 
-  const leaOpts = YEARS.lea
-    .map((fy) => `<option value="${fy}">FY${fy}</option>`)
-    .join("");
-  document.getElementById("detail-fy").innerHTML = leaOpts;
-  document.getElementById("compare-fy").innerHTML = leaOpts;
-  document.getElementById("map-fy").innerHTML = leaOpts;
+  // FY dropdown is shared by map, district report, and compare. Initial
+  // population uses LEA FYs (matches default report-type=detail). The
+  // report-type radio handler swaps in SCEIS FYs when YTD is selected.
+  populateMapFy("detail");
 
-  const sceisOpts = YEARS.sceis
-    .map((fy) => `<option value="${fy}">FY${fy}</option>`)
-    .join("");
-  document.getElementById("ytd-fy").innerHTML = sceisOpts;
-
-  // What-If FY list comes from the API so total-only FYs (e.g. FY25) get
-  // a tag and the dashboard mirrors what the engine actually has loaded.
+  // Cache What-If defaults so the header button can launch the report
+  // without its own FY dropdown. The What-If page itself lets the user
+  // pick a different base FY once it opens.
   try {
     const wd = await fetch("/api/whatif/sac/defaults").then((r) => r.json());
-    const fyEl = document.getElementById("whatif-fy");
-    fyEl.innerHTML = (wd.available_fys || []).map((fy) => {
-      const tag = wd.fy_modes[fy] === "total_only" ? " (total-only)" : "";
-      return `<option value="${fy}">FY${fy}${tag}</option>`;
-    }).join("");
-    if (wd.base_fy) fyEl.value = wd.base_fy;
+    WHATIF.base_fy = wd.base_fy ?? null;
+    WHATIF.available_fys = wd.available_fys || [];
   } catch (e) {
     // dashboard still renders even if the What-If endpoint is unreachable
   }
+}
 
-  // Defaults: latest FY for LEA selectors, current SCEIS FY for YTD
-  const latestLea = YEARS.lea.at(-1);
-  document.getElementById("detail-fy").value = latestLea;
-  document.getElementById("compare-fy").value = latestLea;
-  document.getElementById("map-fy").value = latestLea;
-  if (YEARS.current_sceis) document.getElementById("ytd-fy").value = YEARS.current_sceis;
+// Swap the FY dropdown options to match the selected report-type, since
+// YTD is keyed off SCEIS FYs (which can extend past the latest LEA FY).
+function populateMapFy(reportType) {
+  const fyEl = document.getElementById("map-fy");
+  const prev = fyEl.value;
+  if (reportType === "ytd") {
+    fyEl.innerHTML = YEARS.sceis
+      .map((fy) => `<option value="${fy}">FY${fy}</option>`)
+      .join("");
+    fyEl.value = YEARS.sceis.includes(parseInt(prev, 10))
+      ? prev
+      : (YEARS.current_sceis ?? YEARS.sceis.at(-1));
+  } else {
+    fyEl.innerHTML = YEARS.lea
+      .map((fy) => `<option value="${fy}">FY${fy}</option>`)
+      .join("");
+    fyEl.value = YEARS.lea.includes(parseInt(prev, 10)) ? prev : YEARS.lea.at(-1);
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -138,13 +137,19 @@ async function loadMap(fy) {
             <strong>${escapeHtml(p.District_Name)}</strong> <small>(${escapeHtml(p.District_ID)})</small><br>
             Revenue: <span class="num">${fmtMoney(p.total_revenue)}</span><br>
             Membership ADM: <span class="num">${fmtInt(p.membership_adm)}</span><br>
-            Per pupil: <span class="num">${fmtMoney(p.revenue_per_pupil)}</span>
+            Per ADM pupil: <span class="num">${fmtMoney(p.revenue_per_pupil)}</span>
           </div>`;
         layer.bindTooltip(tooltip, { sticky: true });
         layer.on("click", () => {
-          document.getElementById("detail-district").value = p.District_ID;
-          document.getElementById("detail-fy").value = fy;
-          runReport("detail");
+          document.getElementById("map-district").value = p.District_ID;
+          // Polygon click runs whichever single-district report the
+          // report-type radio currently selects. The map FY only
+          // applies if that report uses an FY (detail / YTD).
+          const reportType = currentReportType();
+          if (reportType !== "ytd") {
+            document.getElementById("map-fy").value = fy;
+          }
+          runReport("district");
         });
       },
     }).addTo(MAP);
@@ -184,7 +189,7 @@ function renderLegend(breaks) {
     const hi = breaks[i + 1];
     return `<span><span class="swatch" style="background:${c}"></span>${fmtMoney(lo)}–${fmtMoney(hi)}</span>`;
   });
-  el.innerHTML = "Revenue per pupil:&nbsp; " + items.join("&nbsp;&nbsp;");
+  el.innerHTML = "Revenue per ADM pupil:&nbsp; " + items.join("&nbsp;&nbsp;");
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -195,30 +200,59 @@ function bindActions() {
   document.querySelectorAll("button[data-action]").forEach((btn) => {
     btn.addEventListener("click", () => runReport(btn.dataset.action));
   });
+  // Switching report-type swaps FY options (LEA ↔ SCEIS) and reloads
+  // the choropleth so the map matches whichever FY is now active.
+  document.querySelectorAll('input[name="report-type"]').forEach((r) => {
+    r.addEventListener("change", () => {
+      populateMapFy(currentReportType());
+      const fy = parseInt(document.getElementById("map-fy").value, 10);
+      if (Number.isFinite(fy)) loadMap(fy);
+    });
+  });
+}
+
+function currentReportType() {
+  return document.querySelector('input[name="report-type"]:checked').value;
+}
+
+function currentCompareMode() {
+  return document.querySelector('input[name="compare-mode"]:checked').value;
 }
 
 async function runReport(action) {
   let url = "";
   switch (action) {
-    case "detail":
-      url = `/api/report/detail?district=${qs("detail-district")}&fy=${qs("detail-fy")}`;
+    case "district": {
+      // Single-district report; type comes from the report-type radio.
+      // For YTD the Table/Chart radio picks between detail and chart.
+      const t = currentReportType();
+      const district = qs("map-district");
+      const fy = qs("map-fy");
+      if (t === "detail") {
+        url = `/api/report/detail?district=${district}&fy=${fy}`;
+      } else if (t === "multi-fy") {
+        url = `/api/report/multi-fy?district=${district}`;
+      } else if (t === "ytd") {
+        const ytdView = currentCompareMode() === "chart" ? "chart" : "detail";
+        url = `/api/ytd/${ytdView}?district=${district}&fy=${fy}`;
+      }
       break;
+    }
     case "compare":
-      const mode = document.querySelector('input[name="compare-mode"]:checked').value;
-      url = `/api/report/compare?fy=${qs("compare-fy")}&mode=${mode}`;
+      url = `/api/report/compare?fy=${qs("map-fy")}&mode=${currentCompareMode()}`;
       break;
-    case "multi-fy":
-      url = `/api/report/multi-fy?district=${qs("multify-district")}`;
-      break;
-    case "ytd-chart":
-      url = `/api/ytd/chart?district=${qs("ytd-district")}&fy=${qs("ytd-fy")}`;
-      break;
-    case "ytd-detail":
-      url = `/api/ytd/detail?district=${qs("ytd-district")}&fy=${qs("ytd-fy")}`;
-      break;
-    case "whatif-sac":
-      window.open(`/api/whatif/sac/report?base_fy=${qs("whatif-fy")}`, "_blank", "noopener");
+    case "whatif-sac": {
+      // Prefer whatever FY is currently in the map dropdown if it's a
+      // valid What-If base; otherwise fall back to the API-provided
+      // default (typically the latest engine-loaded FY).
+      const cur = parseInt(document.getElementById("map-fy").value, 10);
+      const baseFy = WHATIF.available_fys.includes(cur) ? cur : WHATIF.base_fy;
+      const url = baseFy
+        ? `/api/whatif/sac/report?base_fy=${baseFy}`
+        : `/api/whatif/sac/report`;
+      window.open(url, "_blank", "noopener");
       return;
+    }
     default:
       return;
   }

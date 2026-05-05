@@ -495,7 +495,7 @@ def render_detail(data: dict[str, Any]) -> str:
           <div class="kpi"><div class="kpi-label">SCEIS State Total</div><div class="kpi-value">{html.escape(fmt_money(state_sceis))}</div></div>
           <div class="kpi"><div class="kpi-label">SCEIS Federal Total</div><div class="kpi-value">{html.escape(fmt_money(federal_sceis))}</div></div>
           <div class="kpi"><div class="kpi-label">Membership ADM (FY{fy})</div><div class="kpi-value">{html.escape(fmt_int(adm))}</div></div>
-          <div class="kpi"><div class="kpi-label">Per-Pupil (LEA)</div><div class="kpi-value">{html.escape(fmt_pp(grand_total/adm) if adm else 'n/a')}</div></div>
+          <div class="kpi"><div class="kpi-label">Per ADM Pupil (LEA)</div><div class="kpi-value">{html.escape(fmt_pp(grand_total/adm) if adm else 'n/a')}</div></div>
         </div>
         <p class="meta" style="margin:0 0 8px 0">Click a category row to expand/collapse the underlying revenue codes. Two codes (3350, 3392) have no Level-2 parent in the funding-stream hierarchy and appear as standalone rows.</p>
         <table>
@@ -514,7 +514,7 @@ def render_detail(data: dict[str, Any]) -> str:
         notes=[
             "LEA self-report rows are filtered to <code>Reported_Flag = TRUE</code>.",
             "SCEIS State Total and Federal Total come from <code>vw_sceis_fi_payments_classified</code> and may not equal the LEA-sourced subtotals (no GL→Revenue_Code bridge yet).",
-            f"Per-pupil denominator is 135-day Membership ADM = SUM(<code>lea_wpu_category.ADM</code>) across BASE_K12+SPED+CTE for FY{fy} (per CLAUDE.md).",
+            f"Per-ADM-pupil denominator is 135-day Membership ADM = SUM(<code>lea_wpu_category.ADM</code>) across BASE_K12+SPED+CTE for FY{fy} (per CLAUDE.md).",
         ],
     )
 
@@ -542,7 +542,7 @@ def render_compare_table(data: dict[str, Any]) -> str:
     head = (
         '<tr><th>District</th><th class="num">ADM</th>'
         + ''.join(f'<th class="num">{html.escape(b)}</th>' for b in buckets)
-        + '<th class="num">Total</th><th class="num">Per Pupil</th></tr>'
+        + '<th class="num">Total</th><th class="num">Per ADM Pupil</th></tr>'
     )
 
     body_rows = []
@@ -644,22 +644,22 @@ def render_compare_chart(data: dict[str, Any]) -> str:
     footer = _methodology_footer(
         single_district=False,
         notes=[
-            "Bars are revenue per pupil (135-day Membership ADM denominator).",
+            "Bars are revenue per ADM pupil (135-day Membership ADM denominator).",
             "State and Federal segments use SCEIS; Local sub-buckets use LEA self-report (filtered Reported_Flag=TRUE).",
-            "Sorted descending by total per-pupil revenue.",
+            "Sorted descending by total per-ADM-pupil revenue.",
         ],
     )
 
     return _wrap(f"""
     <div class="scde-report">
       <h1>{fmt_fy(fy)} District Revenue Comparison</h1>
-      <div class="meta">Per-pupil, all reporting districts · generated {date.today().isoformat()}</div>
+      <div class="meta">Per ADM pupil, all reporting districts · generated {date.today().isoformat()}</div>
       <figure>
         <svg viewBox="0 0 {w} {h}" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:1100px;display:block" role="img" aria-labelledby="cmpcap">
           {''.join(bars_svg)}
         </svg>
         {legend_html}
-        <figcaption id="cmpcap" style="font-size:12px;color:#43718B;margin-top:4px">Stacked horizontal bars; revenue per pupil; sorted desc.</figcaption>
+        <figcaption id="cmpcap" style="font-size:12px;color:#43718B;margin-top:4px">Stacked horizontal bars; revenue per ADM pupil; sorted desc.</figcaption>
       </figure>
       {footer}
     </div>
@@ -679,7 +679,7 @@ def render_multi_fy(data: dict[str, Any]) -> str:
     head = (
         '<tr><th>FY</th><th class="num">ADM</th>'
         + ''.join(f'<th class="num">{html.escape(b)}</th>' for b in buckets)
-        + '<th class="num">Total</th><th class="num">Per Pupil</th></tr>'
+        + '<th class="num">Total</th><th class="num">Per ADM Pupil</th></tr>'
     )
     body_rows = []
     for r in rows:
@@ -700,7 +700,7 @@ def render_multi_fy(data: dict[str, Any]) -> str:
     footer = _methodology_footer(
         single_district=True,
         notes=[
-            "Each row = one FY. Buckets and per-pupil rules match the single-FY comparison.",
+            "Each row = one FY. Buckets and per-ADM-pupil rules match the single-FY comparison.",
             "Rows where the district did not submit LEA data (Reported_Flag=FALSE everywhere) are flagged.",
         ],
     )
@@ -713,7 +713,7 @@ def render_multi_fy(data: dict[str, Any]) -> str:
         <thead>{head}</thead>
         <tbody>{''.join(body_rows)}</tbody>
       </table>
-      <h2>Per-pupil trend</h2>
+      <h2>Per-ADM-pupil trend</h2>
       {chart_svg}
       {footer}
     </div>
@@ -729,19 +729,30 @@ def _multi_fy_chart_svg(rows: list[dict], buckets: list[str]) -> str:
     fys = [r["fy"] for r in rows]
     if not fys:
         return "<p>No data.</p>"
-    x_step = (w - pad_l - pad_r) / max(1, len(fys) - 1) if len(fys) > 1 else 0
+
+    n_groups = len(fys)
+    n_buckets = max(1, len(buckets))
+    inner_w = w - pad_l - pad_r
+    group_slot = inner_w / n_groups
+    # 12% padding on each side of an FY group; bars within share the rest.
+    group_pad = group_slot * 0.12
+    group_inner = group_slot - 2 * group_pad
+    bar_w = group_inner / n_buckets
+
     max_pp = max(
         (r["per_pupil"][b] or 0) for r in rows for b in buckets if r["per_pupil"]
     ) or 1
     y_scale = (h - pad_t - pad_b) / max_pp
 
-    def x_for(i): return pad_l + i * x_step if len(fys) > 1 else (w - pad_l - pad_r) / 2 + pad_l
+    def group_x(i): return pad_l + i * group_slot
+    def bar_x(i, bi): return group_x(i) + group_pad + bi * bar_w
     def y_for(v): return h - pad_b - (v or 0) * y_scale
+    def label_x(i): return group_x(i) + group_slot / 2
 
-    tilt = len(fys) > 6
+    tilt = n_groups > 6
     grid = [f'<line x1="{pad_l}" y1="{h-pad_b}" x2="{w-pad_r}" y2="{h-pad_b}" stroke="{GRIDLINE_COLOR}" stroke-opacity="{GRIDLINE_OPACITY}"/>']
     for i, fy in enumerate(fys):
-        x = x_for(i)
+        x = label_x(i)
         label = fmt_fy(fy)
         if tilt:
             grid.append(f'<text x="{x}" y="{h-pad_b+14}" font-size="11" text-anchor="end" fill="#43718B" transform="rotate(-45 {x} {h-pad_b+14})">{label}</text>')
@@ -756,25 +767,25 @@ def _multi_fy_chart_svg(rows: list[dict], buckets: list[str]) -> str:
             f'<text x="{pad_l-6}" y="{y+3}" text-anchor="end" font-size="10" font-family="JetBrains Mono,monospace" fill="#43718B">{html.escape(fmt_money_si(v))}</text>'
         )
 
-    lines = []
+    bars = []
     legend_pairs: list[tuple[str, str]] = []
     for bi, b in enumerate(buckets):
         col = CATEGORICAL_PALETTE[bi % len(CATEGORICAL_PALETTE)]
-        pts = []
         for i, r in enumerate(rows):
             v = (r["per_pupil"] or {}).get(b, 0) or 0
-            pts.append(f"{x_for(i):.1f},{y_for(v):.1f}")
-        if pts:
-            lines.append(f'<polyline fill="none" stroke="{col}" stroke-width="2" points="{" ".join(pts)}"/>')
-            for p in pts:
-                x, y = p.split(",")
-                lines.append(f'<circle cx="{x}" cy="{y}" r="3" fill="{col}"/>')
+            x = bar_x(i, bi)
+            y = y_for(v)
+            bh = max(0.0, (h - pad_b) - y)
+            tooltip = f"{html.escape(b)} · {fmt_fy(fys[i])}: {html.escape(fmt_money(v))}/pupil"
+            bars.append(
+                f'<rect x="{x:.1f}" y="{y:.1f}" width="{max(0.0, bar_w - 1):.1f}" height="{bh:.1f}" fill="{col}"><title>{tooltip}</title></rect>'
+            )
         legend_pairs.append((col, b))
 
     svg = (
         f'<svg viewBox="0 0 {w} {h}" width="100%" style="max-width:900px;display:block" '
-        f'role="img" aria-label="Multi-year per-pupil revenue trend by bucket">'
-        f'{"".join(grid)}{"".join(lines)}</svg>'
+        f'role="img" aria-label="Multi-year per-ADM-pupil revenue, clustered bars by bucket">'
+        f'{"".join(grid)}{"".join(bars)}</svg>'
     )
     return svg + _legend_html(legend_pairs)
 

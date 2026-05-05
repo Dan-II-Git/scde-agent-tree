@@ -23,60 +23,32 @@
   <section class="panel map-panel">
     <header class="panel-header">
       <h2>SC Districts</h2>
-      <label class="control">
-        FY
-        <select id="map-fy"></select>
-      </label>
+      <div class="header-controls">
+        <label class="control">
+          District
+          <select id="map-district"></select>
+        </label>
+        <label class="control">
+          FY
+          <select id="map-fy"></select>
+        </label>
+        <fieldset class="radio-group header-radio" id="report-type-radio">
+          <label><input type="radio" name="report-type" value="detail" checked> Detail</label>
+          <label><input type="radio" name="report-type" value="multi-fy"> Multi-Year</label>
+          <label><input type="radio" name="report-type" value="ytd"> YTD</label>
+        </fieldset>
+        <fieldset class="radio-group header-radio">
+          <label><input type="radio" name="compare-mode" value="table" checked> Table</label>
+          <label><input type="radio" name="compare-mode" value="chart"> Chart</label>
+        </fieldset>
+        <button class="header-btn" data-action="district">View district</button>
+        <button class="header-btn" data-action="compare">Compare all</button>
+        <button class="header-btn" data-action="whatif-sac" title="SAC What-If Scenario — opens in a new tab">What-If SAC</button>
+      </div>
     </header>
     <div id="map"></div>
     <div class="legend" id="map-legend"></div>
   </section>
-
-  <aside class="panel controls-panel">
-    <div class="control-card">
-      <h3>Detail Report</h3>
-      <p class="control-hint">Single district, single FY. LEA self-report + SCEIS state-side totals.</p>
-      <label>District<select id="detail-district"></select></label>
-      <label>FY<select id="detail-fy"></select></label>
-      <button data-action="detail">Generate</button>
-    </div>
-
-    <div class="control-card">
-      <h3>Single-FY Comparison</h3>
-      <p class="control-hint">All districts × revenue buckets, with statewide weighted average.</p>
-      <label>FY<select id="compare-fy"></select></label>
-      <fieldset class="radio-group">
-        <label><input type="radio" name="compare-mode" value="table" checked> Table</label>
-        <label><input type="radio" name="compare-mode" value="chart"> Chart</label>
-      </fieldset>
-      <button data-action="compare">Generate</button>
-    </div>
-
-    <div class="control-card">
-      <h3>Multi-FY by District</h3>
-      <p class="control-hint">One district across all available fiscal years, with per-pupil trend.</p>
-      <label>District<select id="multify-district"></select></label>
-      <button data-action="multi-fy">Generate</button>
-    </div>
-
-    <div class="control-card">
-      <h3>Year-to-Date by Month</h3>
-      <p class="control-hint">SCEIS payments, current FY, monthly. Chart or detailed table.</p>
-      <label>District<select id="ytd-district"></select></label>
-      <label>FY<select id="ytd-fy"></select></label>
-      <div class="button-row">
-        <button data-action="ytd-chart">Chart</button>
-        <button data-action="ytd-detail">Detail</button>
-      </div>
-    </div>
-
-    <div class="control-card">
-      <h3>SAC What-If Scenario</h3>
-      <p class="control-hint">Strict statute formula (Funding Manual pp. 11–13). Dial appropriation $ and statute weights; see district-level allocation impacts live.</p>
-      <label>WPU base FY<select id="whatif-fy"></select></label>
-      <button data-action="whatif-sac">Open in new tab</button>
-    </div>
-  </aside>
 </main>
 
 <section class="output-panel" id="output">
