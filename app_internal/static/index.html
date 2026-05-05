@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SCDE Internal Budget Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/dashboard.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span class="brand-text">SCDE Finance</span>
+    <span class="brand-tag">Internal · Budget vs Actuals</span>
+  </div>
+  <div class="status" id="status">checking…</div>
+</header>
+
+<main class="grid">
+  <section class="panel">
+    <header class="panel-header">
+      <h2>Budget vs Actuals</h2>
+      <div class="header-controls">
+        <label class="control">
+          FY
+          <select id="fy"></select>
+        </label>
+        <button class="header-btn" data-action="agency">View agency-wide</button>
+      </div>
+    </header>
+    <section class="output-panel" id="output">
+      <div class="output-placeholder">Loading…</div>
+    </section>
+  </section>
+</main>
+
+<script src="/static/dashboard.js" type="module"></script>
+</body>
+</html>

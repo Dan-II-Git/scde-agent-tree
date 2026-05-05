@@ -19,6 +19,7 @@ in three tiers:
    sceis-data                 data-quality              report-<name>
    code-catalog               db-warehouse              ...
    lea-data
+   internal-budget
 ```
 
 Layer agents own the file-format quirks for their slice of the ERD.
@@ -43,6 +44,29 @@ Prefer SCEIS where the question is about a flow that touches the state
 ledger. Fall back to LEA self-reports only for flows that never reach
 SCEIS (local taxes/fees, district-side operational detail). See the
 "System of record preferred" convention below.
+
+A third, **internal-facing** view of agency money is the SAP Funds
+Management module: `*FMEDDW*.xlsx` (Funds Management Drilldown).
+Owned by `internal-budget`. Loaded into `sceis_fmeddw`; pivoted into
+`vw_budget_vs_actuals_by_funds_center` for the internal director-facing
+dashboard. **FM Actuals (GM Budget Doc Type) and FI ledger spend
+(`sceis_detail_transaction`) measure different things and will not
+reconcile** — see the internal-budget agent for the rule.
+
+## Apps
+
+The repo ships **two FastAPI apps** that share the same canonical DB:
+
+- **Public dashboard (`app/`)** — port `8765`, launched via
+  `start-dashboard.cmd`. Audience: external / district-facing reports
+  (revenue, comparisons, multi-FY trends, What-If SAC).
+- **Internal budget dashboard (`app_internal/`)** — port `8766`,
+  launched via `start-internal-dashboard.cmd`. Audience: SCDE agency
+  directors viewing budget vs actuals at the Funds Center / Commitment
+  Item grain. Backed by `vw_budget_vs_actuals_by_funds_center`.
+
+Both apps connect read-only and can run simultaneously. Ingestion or
+schema changes require stopping both servers (they hold the DB lock).
 
 ## Conventions
 

@@ -161,6 +161,41 @@ CREATE TABLE IF NOT EXISTS sceis_fi_payments (
 );
 
 -- ============================================================
+-- SCEIS Funds Management (owned by internal-budget agent)
+-- ============================================================
+
+-- FMEDDW = SAP Funds Management Drilldown Reporting transaction.
+-- Document-level FM postings: budget appropriations, transfers,
+-- carryforward, allocations, and GM-module actuals consumption.
+-- One row = one FM document line. Budget vs actuals is derived
+-- via vw_budget_vs_actuals_by_funds_center.
+CREATE TABLE IF NOT EXISTS sceis_fmeddw (
+    Entry_Document          VARCHAR NOT NULL,
+    Entry_Document_Line     VARCHAR NOT NULL,
+    Document_Date           DATE,
+    Document_Year           VARCHAR,
+    Version                 VARCHAR,
+    Entry_Document_Type     VARCHAR,           -- APPR, TRFW, GM01, BDAJ, CFWD, SUPP, IATR, ALOC, CFGF, OSB2
+    Process                 VARCHAR,           -- Enter / Receive / Send / Supplement / Carry For. Recv / Return
+    Created_On              DATE,
+    Fiscal_Year             SMALLINT,
+    Budget_Type             VARCHAR,           -- ORIGINAL APPROPRIATIONS, TRANSFER OF APPROPRIATIONS, GM Budget Doc Type, etc.
+    Fund                    VARCHAR,
+    Funds_Center            VARCHAR,           -- FM org object; 10-char = leaf cost center, 8-char = rollup parent
+    Commitment_Item         VARCHAR,
+    Functional_Area         VARCHAR,
+    Grant                   VARCHAR,
+    Document_Status         VARCHAR,           -- 'Posted' | 'Preposted Posted'
+    Document_Status_Code    SMALLINT,          -- 1 = Posted, 3 = Preposted Posted
+    Funded_Program          VARCHAR,
+    Amount                  DECIMAL(18, 2),    -- "Total of Transactions in Local Currency"; signed (Send -, Receive/Enter +)
+    Currency                VARCHAR,
+    Is_Rollup               BOOLEAN,           -- TRUE when LEN(Funds_Center)=8; exclude from per-center aggregations
+    Source_File             VARCHAR,
+    PRIMARY KEY (Entry_Document, Entry_Document_Line)
+);
+
+-- ============================================================
 -- LEA (owned by lea-data agent)
 -- ============================================================
 
@@ -442,3 +477,67 @@ SELECT
 FROM  code_district_funding_streams  c
 LEFT JOIN last_active  la ON la.Revenue_Code = c.REV_Code
 LEFT JOIN recent_window rw ON rw.Revenue_Code = c.REV_Code;
+
+-- vw_budget_vs_actuals_by_funds_center: pivots sceis_fmeddw document
+-- rows into (Funds_Center, Fiscal_Year) -> Total_Budget,
+-- Estimated_Revenue, Actuals, Available, Pct_Consumed.
+--
+-- See internal-budget agent definition for the Budget_Type taxonomy.
+-- Excludes Is_Rollup rows (8-char parent nodes) so per-center totals
+-- do not double-count the agency rollup. ESTIMATED REVENUE is held
+-- separate from Total_Budget because it is revenue-side budget, not
+-- expenditure authority.
+CREATE OR REPLACE VIEW vw_budget_vs_actuals_by_funds_center AS
+SELECT
+    Funds_Center,
+    Fiscal_Year,
+    SUM(CASE
+        WHEN Budget_Type IN (
+            'ORIGINAL APPROPRIATIONS',
+            'SUPPLEMENTAL APPROPRIATIONS',
+            'BUDGET ADJUSTMENTS',
+            'Carryforward Gen Fund',
+            'Carryforward Special Items',
+            '2% APPROPRIATION BUDGET',
+            'TRANSFER OF APPROPRIATIONS',
+            'TRANSFER OF SALARY/FRINGE',
+            'INTER-AGENCY TRANSFER',
+            'ALLOCATIONS-TRSFRS FR EMPL BEN'
+        ) THEN Amount ELSE 0
+    END)                                                            AS Total_Budget,
+    SUM(CASE WHEN Budget_Type = 'ESTIMATED REVENUE' THEN Amount ELSE 0 END)
+                                                                    AS Estimated_Revenue,
+    SUM(CASE
+        WHEN Budget_Type = 'GM Budget Doc Type' AND Process = 'Receive' THEN Amount
+        ELSE 0
+    END)                                                            AS Actuals,
+    SUM(CASE
+        WHEN Budget_Type IN (
+            'ORIGINAL APPROPRIATIONS','SUPPLEMENTAL APPROPRIATIONS','BUDGET ADJUSTMENTS',
+            'Carryforward Gen Fund','Carryforward Special Items','2% APPROPRIATION BUDGET',
+            'TRANSFER OF APPROPRIATIONS','TRANSFER OF SALARY/FRINGE',
+            'INTER-AGENCY TRANSFER','ALLOCATIONS-TRSFRS FR EMPL BEN'
+        ) THEN Amount ELSE 0
+    END)
+    -
+    SUM(CASE WHEN Budget_Type='GM Budget Doc Type' AND Process='Receive' THEN Amount ELSE 0 END)
+                                                                    AS Available,
+    CASE WHEN
+        SUM(CASE WHEN Budget_Type IN (
+            'ORIGINAL APPROPRIATIONS','SUPPLEMENTAL APPROPRIATIONS','BUDGET ADJUSTMENTS',
+            'Carryforward Gen Fund','Carryforward Special Items','2% APPROPRIATION BUDGET',
+            'TRANSFER OF APPROPRIATIONS','TRANSFER OF SALARY/FRINGE',
+            'INTER-AGENCY TRANSFER','ALLOCATIONS-TRSFRS FR EMPL BEN'
+        ) THEN Amount ELSE 0 END) > 0
+    THEN
+        SUM(CASE WHEN Budget_Type='GM Budget Doc Type' AND Process='Receive' THEN Amount ELSE 0 END)
+        / SUM(CASE WHEN Budget_Type IN (
+            'ORIGINAL APPROPRIATIONS','SUPPLEMENTAL APPROPRIATIONS','BUDGET ADJUSTMENTS',
+            'Carryforward Gen Fund','Carryforward Special Items','2% APPROPRIATION BUDGET',
+            'TRANSFER OF APPROPRIATIONS','TRANSFER OF SALARY/FRINGE',
+            'INTER-AGENCY TRANSFER','ALLOCATIONS-TRSFRS FR EMPL BEN'
+        ) THEN Amount ELSE 0 END)
+    END                                                             AS Pct_Consumed
+FROM sceis_fmeddw
+WHERE Is_Rollup = FALSE
+GROUP BY Funds_Center, Fiscal_Year;

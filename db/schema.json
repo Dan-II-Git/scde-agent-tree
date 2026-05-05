@@ -227,6 +227,57 @@
         "Amount": "Payment amount."
       }
     },
+    "sceis_fmeddw": {
+      "purpose": "SAP Funds Management Drilldown (FMEDDW) extract — document-level FM postings: budget appropriations, transfers, carryforward, allocations, and GM-module actuals consumption. Owned by the internal-budget agent. Powers the internal-facing budget vs actuals dashboard at app_internal/. Each row = one FM document line. Budget-vs-actuals roll-ups are derived via vw_budget_vs_actuals_by_funds_center; do not aggregate this table directly without the Budget_Type filters documented in the internal-budget agent.",
+      "stability": "stable",
+      "source": "data/uploads/4-3 FMEDDW.xlsx · 4,276 rows · single FY (currently FY26 through period 10) · loaded by scripts/ingest_fmeddw.py",
+      "load_caveats": [
+        "Each FMEDDW extract is single-FY. The ingest script TRUNCATEs and reloads — do not re-run with a different-FY file unless you intend to overwrite the previous one. Multi-FY analysis needs a separate strategy.",
+        "FMEDDW Actuals (GM Budget Doc Type, Process=Receive) measure budget authority consumed, NOT the full FI ledger. They will not match SUM(sceis_detail_transaction.Debit_Credit_Amount) for the same Funds Center, by design. Do not reconcile the two — they measure different things.",
+        "8-character Funds Center values are FM hierarchy rollup parents (e.g. 'H6300000') and are flagged Is_Rollup=TRUE. Filter Is_Rollup=FALSE for any per-center aggregation, or budget will double-count.",
+        "GM Budget Doc Type rows always appear as matched Send/Receive pairs within the same Entry Document. Sum only Process='Receive' for actuals; summing both nets to zero.",
+        "ESTIMATED REVENUE Budget_Type is revenue-side budget, kept separate from expenditure budget in the view's Estimated_Revenue column.",
+        "Source xlsx has two columns named 'Document Status' — string ('Posted'/'Preposted Posted') and integer (1/3). The integer is renamed to Document_Status_Code at load time."
+      ],
+      "columns": {
+        "Entry_Document": "FM document number — primary key together with Entry_Document_Line.",
+        "Entry_Document_Line": "Line within the FM document, zero-padded string ('000001', '000002', ...).",
+        "Document_Date": "Date the FM document was created.",
+        "Document_Year": "Calendar year of Document_Date as a string ('2026'). Distinct from Fiscal_Year.",
+        "Version": "FM budget version. Always '0' (operative budget) in current data; non-zero versions would be scenarios/drafts.",
+        "Entry_Document_Type": "SAP FM document type: APPR (appropriation), TRFW (transfer), GM01 (grants management), BDAJ (adjustment), CFWD (carryforward), SUPP (supplemental), IATR (inter-agency), ALOC (allocation), CFGF (carryforward general fund), OSB2 (2% appropriation).",
+        "Process": "FM movement direction: 'Enter' (positive budget entry), 'Receive' (positive transfer in or actuals consumed), 'Send' (negative transfer out or GM offset), 'Supplement' (positive adjustment), 'Carry For. Recv' (carryforward receipt), 'Return' (negative adjustment).",
+        "Created_On": "Timestamp the document was posted in SAP.",
+        "Fiscal_Year": "SC fiscal year (Jul-Jun). Single value across the current extract.",
+        "Budget_Type": "Drives the budget-vs-actuals pivot. See internal-budget agent for the taxonomy: ORIGINAL APPROPRIATIONS, SUPPLEMENTAL APPROPRIATIONS, BUDGET ADJUSTMENTS, Carryforward Gen Fund, Carryforward Special Items, 2% APPROPRIATION BUDGET, TRANSFER OF APPROPRIATIONS, TRANSFER OF SALARY/FRINGE, INTER-AGENCY TRANSFER, ALLOCATIONS-TRSFRS FR EMPL BEN, ESTIMATED REVENUE, GM Budget Doc Type.",
+        "Fund": "FM Fund — partitions budget authority by funding source (general fund, EIA, federal pass-through, etc.).",
+        "Funds_Center": "FM organizational object. 10-character codes are leaf cost centers (one director's responsibility); 8-character codes are rollup parents in the FM hierarchy.",
+        "Commitment_Item": "FM commitment item — maps to a G/L account family. Drill-down dimension below Funds_Center.",
+        "Functional_Area": "Functional classification from the SAP CO module.",
+        "Grant": "Mostly 'NOT RELEVANT' — only populated for grant-funded postings.",
+        "Document_Status": "'Posted' or 'Preposted Posted'. Both are fully settled — Preposted means the document was pre-posted then posted, NOT pending.",
+        "Document_Status_Code": "Numeric code matching Document_Status: 1 = Posted, 3 = Preposted Posted.",
+        "Funded_Program": "FM funded program — finer-grained than Funds_Center, often the legislatively-named program receiving the budget.",
+        "Amount": "Total of Transactions in Local Currency. SIGNED — Send entries are negative, Receive/Enter/Supplement entries are positive. Never abs() before aggregation.",
+        "Currency": "Always 'USD'.",
+        "Is_Rollup": "TRUE when LEN(Funds_Center)=8 — these are FM hierarchy parent nodes. Filter Is_Rollup=FALSE for any per-center aggregation.",
+        "Source_File": "Originating xlsx filename, for provenance and reload diagnostics."
+      }
+    },
+    "vw_budget_vs_actuals_by_funds_center": {
+      "purpose": "View — pivots sceis_fmeddw document rows into (Funds_Center, Fiscal_Year) → Total_Budget, Estimated_Revenue, Actuals, Available, Pct_Consumed. Owned by the internal-budget agent. The canonical input to the internal-facing budget vs actuals dashboard at app_internal/. Excludes Is_Rollup rows so per-center totals don't double-count the agency rollup.",
+      "stability": "derived",
+      "source": "Computed from sceis_fmeddw on every query.",
+      "columns": {
+        "Funds_Center": "Leaf-level FM cost center (10-character code).",
+        "Fiscal_Year": "SC fiscal year (Jul-Jun).",
+        "Total_Budget": "Sum of all expenditure-side budget entries: ORIGINAL APPROPRIATIONS + SUPPLEMENTAL + BUDGET ADJUSTMENTS + Carryforward (Gen Fund + Special Items) + 2% APPROPRIATION BUDGET + all transfer types (TRANSFER OF APPROPRIATIONS, TRANSFER OF SALARY/FRINGE, INTER-AGENCY TRANSFER, ALLOCATIONS-TRSFRS FR EMPL BEN). Transfers net signed across Receive (+) and Send (-).",
+        "Estimated_Revenue": "Sum of ESTIMATED REVENUE entries — revenue-side budget, kept separate from Total_Budget so it doesn't inflate spending authority.",
+        "Actuals": "Sum of GM Budget Doc Type rows where Process='Receive'. Measures budget authority consumed via the SAP Grants Management module. NOT the same as FI ledger spend; do not reconcile against sceis_detail_transaction.",
+        "Available": "Total_Budget - Actuals. May be negative if a Funds Center has overspent its current authority pending adjustment.",
+        "Pct_Consumed": "Actuals / Total_Budget when Total_Budget > 0; NULL otherwise. Already a fraction (0.85 = 85%), not a percent."
+      }
+    },
     "lea_revenues": {
       "purpose": "District-level annual revenue, normalized to tidy form. Source files are wide-pivot with districts as columns; this table is the unpivoted result. District self-reported, NOT the system of record — see Reported_Flag for submission status.",
       "stability": "stable",
