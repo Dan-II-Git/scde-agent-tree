@@ -32,26 +32,47 @@ def list_funds_centers(fy: int) -> list[dict[str, Any]]:
 
 
 def get_budget_vs_actuals(fy: int) -> list[dict[str, Any]]:
-    """All Funds Centers for the FY with budget/actuals/available/pct."""
+    """All Funds Centers for the FY with budget/actuals/available/pct,
+    enriched with the agency-master Name and a derived Department.
+
+    Department rule: cost centers whose code starts with 'H630BU' (i.e.
+    H630BU0010 'Transportation' and the H630BUS001..H630BUS049+ bus-shop
+    series) all roll up to a 'TRANSPORTATION' department so the bus shops
+    sit visually under their parent Transportation cost center. Every
+    other cost center has Department = Name (one cost center per dept).
+    Rows are returned in the display order: Department, then Funds_Center
+    so the Transportation block lands contiguously with H630BU0010 first."""
     rows = fetchall(
         """
-        SELECT Funds_Center, Total_Budget, Estimated_Revenue, Actuals,
-               Available, Pct_Consumed
-        FROM vw_budget_vs_actuals_by_funds_center
-        WHERE Fiscal_Year = ?
-        ORDER BY Total_Budget DESC
+        SELECT
+            v.Funds_Center,
+            COALESCE(am.Name, v.Funds_Center) AS Name,
+            CASE
+                WHEN v.Funds_Center LIKE 'H630BU%' THEN 'Transportation'
+                ELSE COALESCE(am.Name, v.Funds_Center)
+            END AS Department,
+            v.Total_Budget, v.Estimated_Revenue, v.Actuals,
+            v.Available,    v.Pct_Consumed
+        FROM vw_budget_vs_actuals_by_funds_center v
+        LEFT JOIN sceis_agency_master am ON am.Cost_Center = v.Funds_Center
+        WHERE v.Fiscal_Year = ?
+        ORDER BY Department, v.Funds_Center
         """,
         [fy],
     )
     out = []
-    for fc, tb, er, ac, av, pc in rows:
+    for fc, name, dept, tb, er, ac, av, pc in rows:
+        is_bus_child = fc.startswith("H630BUS")
         out.append({
-            "funds_center": fc,
-            "total_budget": float(tb or 0),
+            "funds_center":     fc,
+            "name":             name,
+            "department":       dept,
+            "is_bus_child":     is_bus_child,
+            "total_budget":     float(tb or 0),
             "estimated_revenue": float(er or 0),
-            "actuals": float(ac or 0),
-            "available": float(av or 0),
-            "pct_consumed": float(pc) if pc is not None else None,
+            "actuals":          float(ac or 0),
+            "available":        float(av or 0),
+            "pct_consumed":     float(pc) if pc is not None else None,
         })
     return out
 
@@ -59,18 +80,20 @@ def get_budget_vs_actuals(fy: int) -> list[dict[str, Any]]:
 def get_funds_center_summary(funds_center: str, fy: int) -> dict[str, Any] | None:
     row = fetchone(
         """
-        SELECT Funds_Center, Total_Budget, Estimated_Revenue, Actuals,
-               Available, Pct_Consumed
-        FROM vw_budget_vs_actuals_by_funds_center
-        WHERE Funds_Center = ? AND Fiscal_Year = ?
+        SELECT v.Funds_Center, am.Name, v.Total_Budget, v.Estimated_Revenue,
+               v.Actuals, v.Available, v.Pct_Consumed
+        FROM vw_budget_vs_actuals_by_funds_center v
+        LEFT JOIN sceis_agency_master am ON am.Cost_Center = v.Funds_Center
+        WHERE v.Funds_Center = ? AND v.Fiscal_Year = ?
         """,
         [funds_center, fy],
     )
     if row is None:
         return None
-    fc, tb, er, ac, av, pc = row
+    fc, name, tb, er, ac, av, pc = row
     return {
         "funds_center": fc,
+        "name": name or fc,
         "total_budget": float(tb or 0),
         "estimated_revenue": float(er or 0),
         "actuals": float(ac or 0),
@@ -79,43 +102,78 @@ def get_funds_center_summary(funds_center: str, fy: int) -> dict[str, Any] | Non
     }
 
 
-def get_commitment_item_breakdown(funds_center: str, fy: int) -> list[dict[str, Any]]:
-    """Drill-down: per-Commitment-Item budget/actuals/available within one
-    Funds Center. Mirrors the view's pivot logic but at finer grain."""
+def get_budget_by_commitment_item(funds_center: str, fy: int) -> list[dict[str, Any]]:
+    """Where budget was APPROPRIATED in this Funds Center, by Commitment
+    Item. Returns one row per CI with non-zero budget, plus the dominant
+    Budget_Type as a 'source' hint (e.g. 'TRANSFER OF APPROPRIATIONS').
+
+    Per the internal-budget agent: budget allocations and GM actuals
+    sit on different Commitment Items in SAP FM, so this list is NOT
+    one-to-one with `get_actuals_by_commitment_item`. They are
+    deliberately exposed as separate views — the FC-level totals
+    reconcile, but per-item budget vs actuals does not."""
+    rows = fetchall(
+        """
+        WITH agg AS (
+          SELECT
+            Commitment_Item,
+            Budget_Type,
+            SUM(Amount) AS amt
+          FROM sceis_fmeddw
+          WHERE Funds_Center = ? AND Fiscal_Year = ? AND Is_Rollup = FALSE
+            AND Budget_Type IN (
+              'ORIGINAL APPROPRIATIONS','SUPPLEMENTAL APPROPRIATIONS','BUDGET ADJUSTMENTS',
+              'Carryforward Gen Fund','Carryforward Special Items','2% APPROPRIATION BUDGET',
+              'TRANSFER OF APPROPRIATIONS','TRANSFER OF SALARY/FRINGE',
+              'INTER-AGENCY TRANSFER','ALLOCATIONS-TRSFRS FR EMPL BEN'
+            )
+          GROUP BY 1, 2
+        ),
+        per_ci AS (
+          SELECT
+            Commitment_Item,
+            SUM(amt) AS total_amt,
+            ARG_MAX(Budget_Type, ABS(amt)) AS dominant_source
+          FROM agg
+          GROUP BY 1
+          HAVING SUM(amt) != 0
+        )
+        SELECT Commitment_Item, total_amt, dominant_source
+        FROM per_ci
+        ORDER BY total_amt DESC
+        """,
+        [funds_center, fy],
+    )
+    return [
+        {
+            "commitment_item": ci,
+            "amount": float(amt or 0),
+            "dominant_source": src,
+        }
+        for ci, amt, src in rows
+    ]
+
+
+def get_actuals_by_commitment_item(funds_center: str, fy: int) -> list[dict[str, Any]]:
+    """Where money was ACTUALLY SPENT in this Funds Center, by Commitment
+    Item. Sums GM Budget Doc Type rows where Process='Receive'; the
+    matching Send rows are intentionally ignored."""
     rows = fetchall(
         """
         SELECT
             Commitment_Item,
-            SUM(CASE
-                WHEN Budget_Type IN (
-                    'ORIGINAL APPROPRIATIONS','SUPPLEMENTAL APPROPRIATIONS','BUDGET ADJUSTMENTS',
-                    'Carryforward Gen Fund','Carryforward Special Items','2% APPROPRIATION BUDGET',
-                    'TRANSFER OF APPROPRIATIONS','TRANSFER OF SALARY/FRINGE',
-                    'INTER-AGENCY TRANSFER','ALLOCATIONS-TRSFRS FR EMPL BEN'
-                ) THEN Amount ELSE 0
-            END) AS Total_Budget,
-            SUM(CASE WHEN Budget_Type='GM Budget Doc Type' AND Process='Receive'
-                     THEN Amount ELSE 0 END) AS Actuals
+            SUM(Amount) AS amt
         FROM sceis_fmeddw
         WHERE Funds_Center = ? AND Fiscal_Year = ? AND Is_Rollup = FALSE
-        GROUP BY Commitment_Item
-        HAVING Total_Budget != 0 OR Actuals != 0
-        ORDER BY Total_Budget DESC
+          AND Budget_Type = 'GM Budget Doc Type'
+          AND Process     = 'Receive'
+        GROUP BY 1
+        HAVING SUM(Amount) != 0
+        ORDER BY amt DESC
         """,
         [funds_center, fy],
     )
-    out = []
-    for ci, tb, ac in rows:
-        tb_f = float(tb or 0)
-        ac_f = float(ac or 0)
-        out.append({
-            "commitment_item": ci,
-            "total_budget": tb_f,
-            "actuals": ac_f,
-            "available": tb_f - ac_f,
-            "pct_consumed": (ac_f / tb_f) if tb_f > 0 else None,
-        })
-    return out
+    return [{"commitment_item": ci, "amount": float(amt or 0)} for ci, amt in rows]
 
 
 def get_agency_totals(fy: int) -> dict[str, Any]:

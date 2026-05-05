@@ -237,3 +237,83 @@ body {
   font-weight: 500;
 }
 .ib-back a:hover { color: var(--brand-primary); text-decoration: underline; }
+
+/* Side-by-side Commitment Item drill-down */
+.ib-split-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+@media (max-width: 880px) {
+  .ib-split-grid { grid-template-columns: 1fr; }
+}
+.ib-ci-block {
+  background: var(--neutral-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+.ib-ci-block h3 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--brand-primary);
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.ib-ci-total {
+  font: 600 14px var(--font-mono);
+  color: var(--brand-primary);
+  text-transform: none; letter-spacing: 0;
+}
+.ib-ci-table { background: #fff; }
+.ib-ci-table .ci-source {
+  font-size: 11px; color: var(--brand-tertiary);
+  white-space: nowrap;
+}
+.ib-methodology {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  background: #FFF7E6;
+  border-left: 3px solid var(--brand-accent);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--neutral-fg);
+  line-height: 1.5;
+}
+
+/* Funds-Center table — Name column on the far left, BUS rows indented */
+.ib-fc-table .ib-name-cell {
+  max-width: 260px;
+  font-weight: 500;
+}
+.ib-fc-table .ib-name-text {
+  display: inline-block;
+  vertical-align: middle;
+}
+.ib-fc-table .ib-subrow-marker {
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--brand-tertiary);
+  font-family: var(--font-mono);
+}
+.ib-fc-table tr.bus-child td.ib-name-cell {
+  padding-left: var(--space-4);
+  font-weight: 400;
+  color: var(--brand-tertiary);
+}
+.ib-fc-table tr.bus-child td.mono {
+  color: var(--brand-tertiary);
+}
+.ib-fc-table tr.dept-divider td {
+  border-top: 2px solid var(--border);
+}
+.ib-fc-table tr.dept-divider:first-child td {
+  border-top: 0;
+}
+
+.ib-fc-code {
+  font: 500 12px var(--font-mono);
+  color: var(--brand-tertiary);
+  margin-left: var(--space-2);
+}

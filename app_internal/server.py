@@ -65,8 +65,15 @@ def api_funds_center_detail(
     fy: int = Query(...),
 ) -> HTMLResponse:
     summary = q.get_funds_center_summary(funds_center, fy)
-    items = q.get_commitment_item_breakdown(funds_center, fy) if summary else []
-    return HTMLResponse(r.render_funds_center_detail(funds_center, fy, summary, items))
+    if summary is None:
+        budget_items: list = []
+        actuals_items: list = []
+    else:
+        budget_items = q.get_budget_by_commitment_item(funds_center, fy)
+        actuals_items = q.get_actuals_by_commitment_item(funds_center, fy)
+    return HTMLResponse(
+        r.render_funds_center_detail(funds_center, fy, summary, budget_items, actuals_items)
+    )
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

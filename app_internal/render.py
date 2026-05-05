@@ -80,11 +80,25 @@ def render_budget_vs_actuals(fy: int, totals: dict[str, Any], rows: list[dict[st
     """
 
     body_rows = []
+    prev_dept = None
     for r in rows:
         cls = consumption_class(r["pct_consumed"])
         bar_pct = max(0.0, min(1.0, r["pct_consumed"] or 0)) * 100
+        # Visual department divider: a thicker top-border between groups.
+        dept_change = (r["department"] != prev_dept)
+        prev_dept = r["department"]
+        row_class = "dept-divider" if dept_change else ""
+        if r["is_bus_child"]:
+            row_class = (row_class + " bus-child").strip()
+            name_cell = (
+                f'<span class="ib-subrow-marker">↳</span>'
+                f'<span class="ib-name-text">{html.escape(r["name"])}</span>'
+            )
+        else:
+            name_cell = f'<span class="ib-name-text">{html.escape(r["name"])}</span>'
         body_rows.append(f"""
-          <tr data-fc="{html.escape(r['funds_center'])}">
+          <tr class="{row_class}" data-fc="{html.escape(r['funds_center'])}">
+            <td class="ib-name-cell">{name_cell}</td>
             <td class="mono">{html.escape(r['funds_center'])}</td>
             <td class="num">{fmt_money(r['total_budget'])}</td>
             <td class="num">{fmt_money(r['actuals'])}</td>
@@ -100,13 +114,15 @@ def render_budget_vs_actuals(fy: int, totals: dict[str, Any], rows: list[dict[st
     <div class="ib-report">
       <header class="ib-report-header">
         <h2>FY{fy} Budget vs Actuals — All Funds Centers</h2>
-        <p class="ib-report-meta">Click a row to drill into Commitment Items.
+        <p class="ib-report-meta">Sorted by department; click any row to drill into Commitment Items.
+          Bus shops are nested under Transportation.
           Source: latest FMEDDW extract · GM-module actuals only.</p>
       </header>
       {kpi_html}
-      <table class="ib-table">
+      <table class="ib-table ib-fc-table">
         <thead>
           <tr>
+            <th>Name</th>
             <th>Funds Center</th>
             <th class="num">Total Budget</th>
             <th class="num">Actuals</th>
@@ -122,9 +138,58 @@ def render_budget_vs_actuals(fy: int, totals: dict[str, Any], rows: list[dict[st
     """
 
 
+def _render_ci_block(title: str, total: float, items: list[dict[str, Any]],
+                     amount_col: str, *, show_source: bool) -> str:
+    """Render one of the two side-by-side Commitment Item tables."""
+    if not items:
+        body = f'<p class="ib-empty">No {title.lower()} recorded.</p>'
+    else:
+        rows = []
+        for it in items:
+            amt = it["amount"]
+            share = (amt / total) if total else None
+            share_pct = max(0.0, min(1.0, share or 0)) * 100
+            source_cell = (
+                f'<td class="ci-source">{html.escape(it.get("dominant_source") or "")}</td>'
+                if show_source else ""
+            )
+            rows.append(f"""
+              <tr>
+                <td class="mono">{html.escape(it['commitment_item'] or '')}</td>
+                <td class="num">{fmt_money(amt)}</td>
+                {source_cell}
+                <td class="pct-cell">
+                  <div class="pct-track"><div class="pct-bar consumed-on-track" style="width:{share_pct:.1f}%"></div></div>
+                  <span class="pct-label">{fmt_pct(share)}</span>
+                </td>
+              </tr>
+            """)
+        source_th = '<th>Source</th>' if show_source else ""
+        body = f"""
+          <table class="ib-table ib-ci-table">
+            <thead>
+              <tr>
+                <th>Commitment Item</th>
+                <th class="num">{amount_col}</th>
+                {source_th}
+                <th>Share</th>
+              </tr>
+            </thead>
+            <tbody>{''.join(rows)}</tbody>
+          </table>
+        """
+    return f"""
+      <section class="ib-ci-block">
+        <h3>{title}<span class="ib-ci-total">{fmt_money(total)}</span></h3>
+        {body}
+      </section>
+    """
+
+
 def render_funds_center_detail(funds_center: str, fy: int,
                                summary: dict[str, Any] | None,
-                               items: list[dict[str, Any]]) -> str:
+                               budget_items: list[dict[str, Any]],
+                               actuals_items: list[dict[str, Any]]) -> str:
     if summary is None:
         return f"""<div class="ib-report"><h2>{html.escape(funds_center)}</h2>
         <p class="ib-empty">No FMEDDW activity for this Funds Center in FY{fy}.</p></div>"""
@@ -143,49 +208,43 @@ def render_funds_center_detail(funds_center: str, fy: int,
     </div>
     """
 
-    if not items:
-        item_block = '<p class="ib-empty">No commitment-item activity recorded.</p>'
-    else:
-        body = []
-        for it in items:
-            cls = consumption_class(it["pct_consumed"])
-            bar_pct = max(0.0, min(1.0, it["pct_consumed"] or 0)) * 100
-            body.append(f"""
-              <tr>
-                <td class="mono">{html.escape(it['commitment_item'] or '')}</td>
-                <td class="num">{fmt_money(it['total_budget'])}</td>
-                <td class="num">{fmt_money(it['actuals'])}</td>
-                <td class="num">{fmt_money(it['available'])}</td>
-                <td class="pct-cell">
-                  <div class="pct-track"><div class="pct-bar {cls}" style="width:{bar_pct:.1f}%"></div></div>
-                  <span class="pct-label {cls}">{fmt_pct(it['pct_consumed'])}</span>
-                </td>
-              </tr>
-            """)
-        item_block = f"""
-          <table class="ib-table">
-            <thead>
-              <tr>
-                <th>Commitment Item</th>
-                <th class="num">Budget</th>
-                <th class="num">Actuals</th>
-                <th class="num">Available</th>
-                <th>% Consumed</th>
-              </tr>
-            </thead>
-            <tbody>{''.join(body)}</tbody>
-          </table>
-        """
+    budget_block = _render_ci_block(
+        "Budget allocations",
+        summary.get("total_budget", 0),
+        budget_items,
+        "Budget",
+        show_source=True,
+    )
+    actuals_block = _render_ci_block(
+        "Actuals consumed",
+        summary.get("actuals", 0),
+        actuals_items,
+        "Actuals",
+        show_source=False,
+    )
 
+    methodology = (
+        '<p class="ib-methodology">'
+        'Budget and actuals are shown as two separate ledgers because SAP FM '
+        'allocates budget to parent Commitment Items (e.g., AID TO DISTRICTS) '
+        'while the GM module derives actuals against finer-grained child items '
+        'at posting time. The Funds Center totals above reconcile; per-Commitment-Item '
+        'totals will not line up one-to-one between the two tables. This is by design.'
+        '</p>'
+    )
+
+    name = summary.get("name") or funds_center
     return f"""
     <div class="ib-report">
       <header class="ib-report-header">
-        <h2>{html.escape(funds_center)} — FY{fy}</h2>
-        <p class="ib-report-meta">Drill-down to Commitment Item.
-          Names are not yet available — sceis_agency_master is empty.</p>
+        <h2>{html.escape(name)} <span class="ib-fc-code">{html.escape(funds_center)}</span> — FY{fy}</h2>
+        <p class="ib-report-meta">Drill-down to Commitment Item.</p>
       </header>
       {kpi_html}
-      <h3>Commitment Items</h3>
-      {item_block}
+      <div class="ib-split-grid">
+        {budget_block}
+        {actuals_block}
+      </div>
+      {methodology}
     </div>
     """
