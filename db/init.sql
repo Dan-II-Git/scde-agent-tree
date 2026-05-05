@@ -80,7 +80,12 @@ CREATE TABLE IF NOT EXISTS lookup_gl_account (
     SAP_Category        VARCHAR,
     Handbook_Code       VARCHAR,
     Handbook_Type       VARCHAR,
-    Handbook_Name       VARCHAR
+    Handbook_Name       VARCHAR,
+    Bridge_Type         VARCHAR,
+    Source              VARCHAR,
+    Confidence          VARCHAR,
+    Notes               VARCHAR,
+    Source_Row_Count    INTEGER
 );
 
 -- ============================================================

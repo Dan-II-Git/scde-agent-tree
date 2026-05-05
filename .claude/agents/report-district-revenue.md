@@ -102,10 +102,15 @@ the handbook even if amount is zero — matches the source PDF exactly.
 
 6. **Hybrid sourcing at the STREAM level only (State Total /
    Federal Total from SCEIS; sub-buckets and Local from LEA).**
-   Today's data does not support per-Revenue_Code SCEIS attribution
-   (`lookup_gl_account` is empty; `Clearing_Doc_Number` is NULL across
-   all FI Payment rows; no `Program_Tag → Revenue_Code` mapping
-   exists). So:
+   Today's data does not support per-Revenue_Code SCEIS attribution.
+   `lookup_gl_account` is now populated from the SCDE-published
+   "Expenditure GL Account Descriptions - March 2025.pdf" (99.4% of
+   5xxx rows mapped to handbook Object codes, 79.5% of 4xxx rows
+   mechanically mapped to handbook Revenue codes), but it bridges
+   GL → Object/Revenue handbook codes, NOT FI-Payment Revenue_Codes.
+   The remaining blockers for per-Revenue_Code SCEIS attribution are
+   unchanged: `Clearing_Doc_Number` is NULL across all FI Payment
+   rows, and no `Program_Tag → Revenue_Code` mapping exists. So:
    - **State Total** column → SCEIS, via
      `vw_sceis_fi_payments_classified` filtered to `Funding_Stream='State'`
      and `District_ID = <district>`, summed per (District_ID, FY).

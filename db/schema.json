@@ -96,15 +96,20 @@
       }
     },
     "lookup_gl_account": {
-      "purpose": "Derived bridge from 10-digit SAP G/L accounts (used in SCEIS) to 3-4 digit handbook codes. Pattern-inferred — replace with canonical SCEIS crosswalk if one becomes available.",
+      "purpose": "Bridge from 10-digit SAP G/L accounts (used in SCEIS) to 3-4 digit handbook codes. Expenditure side (5xxx) sourced from the SCDE-published 'Expenditure GL Account Descriptions - March 2025.pdf' group map (99.4% of 5xxx rows). Revenue side (4xxx) is mechanical pattern extraction (79% of 4xxx rows) pending a canonical revenue crosswalk. Balance-sheet (1-3xxx) and clearing (7xxx) accounts are intentionally unmapped — the handbook has no codes for those concepts. Always filter consumer joins on `code_accounting_codes.Type = lookup_gl_account.Handbook_Type` — 251 Object codes overlap numerically with Function codes and will double-count otherwise.",
       "stability": "derived",
-      "source": "Inferred from G/L digit patterns in DETAIL_TRANSACTION + FI_PAYMENTS",
+      "source": "data/uploads/Expenditure GL Account Descriptions - March 2025.pdf for 5xxx; mechanical digit extraction for 4xxx; balance-sheet/clearing accounts deliberately excluded.",
       "columns": {
         "GL_Account": "10-digit SAP G/L account number, e.g. '4110020000'.",
         "SAP_Category": "Inferred from leading digit: 1xxx asset, 2xxx liability, 3xxx fund balance, 4xxx revenue, 5xxx expenditure, 6-7xxx clearing.",
-        "Handbook_Code": "Matched 3-4 digit handbook code where possible. Blank for balance-sheet accounts (correctly excluded from handbook).",
-        "Handbook_Type": "Revenue / Object / Balance Sheet — the category the matched code falls under.",
-        "Handbook_Name": "Display name from code_accounting_codes for the matched code."
+        "Handbook_Code": "Matched 3-4 digit handbook code. NULL for unmapped rows.",
+        "Handbook_Type": "Revenue / Object — the category the matched code falls under. NULL for unmapped rows.",
+        "Handbook_Name": "Display name from code_accounting_codes for the matched code.",
+        "Bridge_Type": "Mapping classification: 'pdf_crosswalk' = sourced from the SCDE expenditure PDF; 'mechanical' = digit-pattern extraction hit a valid handbook code; 'unmapped' = no handbook match (balance-sheet, clearing, depreciation, ACFR, or operational orphan). Explicit 'unmapped' is preferred over NULL so consumers can filter deterministically.",
+        "Source": "Per-row provenance tag: 'pdf_crosswalk_group_map', 'mechanical_pos2-5', 'balance_sheet_excluded', 'depreciation_excluded', 'acfr_excluded', 'clearing_excluded', or 'interfund_excluded'. Distinguishes mapped rows by source and explains why each unmapped row was deliberately left out.",
+        "Confidence": "Mapping confidence tier: 'high' for PDF and mechanical matches; 'n/a' for intentionally unmapped rows.",
+        "Notes": "Human-readable rationale for the mapping decision — group name from the PDF, the digit-extraction result, or the reason a row is intentionally unmapped. Especially load-bearing for high-dollar orphans like the $6.07B GL 5170500000.",
+        "Source_Row_Count": "Row count of this GL_Account in sceis_detail_transaction at the time the staging parquet was generated. Used for triage — high-row-count unmapped accounts are higher priority to resolve."
       }
     },
     "lookup_sceis_program_classification": {
