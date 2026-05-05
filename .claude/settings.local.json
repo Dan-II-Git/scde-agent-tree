@@ -87,7 +87,32 @@
       "Bash(powershell.exe -Command 'Stop-Process -Id 16952 -Force -ErrorAction SilentlyContinue; Get-Process | Where-Object { $_.ProcessName -eq '\\\\''python'\\\\'' } | Format-Table Id, ProcessName, StartTime')",
       "Bash(powershell.exe *)",
       "Bash(.venv/Scripts/python *)",
-      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python *)"
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python *)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/uvicorn app.server:app *)",
+      "Bash(start \"\" \"http://127.0.0.1:8000/\")",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Get-Process *)",
+      "Bash(gh auth *)",
+      "PowerShell(gh auth *)",
+      "PowerShell(winget *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-CimInstance *)",
+      "Bash(python scripts/ingest_detail_transaction.py --dry-run)",
+      "Bash(python scripts/ingest_detail_transaction.py)",
+      "Bash(Get-Process -Id 11440 -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object Id, ProcessName, MainWindowTitle, StartTime)",
+      "Bash(python -c \"import pyarrow; print\\(pyarrow.__version__\\)\")",
+      "Bash(python -c \"import pandas; print\\(pandas.__version__\\)\")",
+      "Bash(python scripts/ingest_detail_transaction.py --load-from-parquet)",
+      "Bash(python -m app.server)",
+      "Bash(python scripts/populate_lookup_gl_account.py --dry-run)",
+      "Bash(python scripts/populate_lookup_gl_account.py)",
+      "Bash(python scripts/analyze_pdf_mapping.py)",
+      "Bash(python scripts/_pdf_mapping_analysis.py)",
+      "Bash(Remove-Item *)",
+      "Bash(python *)",
+      "PowerShell(Get-Command *)"
     ]
   }
 }
