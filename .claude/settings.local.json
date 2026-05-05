@@ -112,7 +112,10 @@
       "Bash(python scripts/_pdf_mapping_analysis.py)",
       "Bash(Remove-Item *)",
       "Bash(python *)",
-      "PowerShell(Get-Command *)"
+      "PowerShell(Get-Command *)",
+      "Bash(grep -E 'data-cc=|ib-name-text|class=\"num\">\\\\$')",
+      "Bash(grep -E \"kpi-\\(label|value\\)|H630LA0010|H630JC0010|TRANSPORTATION|class=\\\\\"num\\\\\">\\\\\\\\\\\\$3,73\")",
+      "Bash(grep -E \"<h2>|kpi-\\(label|value\\)|>700<|>400<|>100<|>200<|TRANSFERS|SUPPLIES|SALARIES|class=\\\\\"num\\\\\">\\\\\\\\\\\\$\")"
     ]
   }
 }
