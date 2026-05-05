@@ -1,8 +1,18 @@
-"""Read helpers for app_internal — Funds-Management budget vs actuals.
+"""Read helpers for app_internal — two parallel views of agency money:
 
-Backed by sceis_fmeddw + vw_budget_vs_actuals_by_funds_center, owned by
-the internal-budget agent. See .claude/agents/internal-budget.md for
-the FM-module semantics this depends on.
+- FM Budget vs Actuals (sceis_fmeddw + vw_budget_vs_actuals_by_funds_center).
+  Owned by the internal-budget agent. Measures BUDGET AUTHORITY and
+  budget consumed via the GM module.
+
+- FI Ledger Expenditures (sceis_detail_transaction filtered to 5xxx GL +
+  lookup_gl_account for handbook-category attribution). Measures full
+  ledger spend including clearing/accruals/payroll postings the GM
+  module excludes. Will NOT reconcile to FM Actuals — see CLAUDE.md
+  and the internal-budget agent for why.
+
+The two views share the same Funds Center / Cost Center grouping logic
+(BUS shops nested under Transportation, friendly names from
+sceis_agency_master).
 """
 from __future__ import annotations
 
@@ -204,4 +214,180 @@ def get_agency_totals(fy: int) -> dict[str, Any]:
             "SELECT COUNT(*) FROM vw_budget_vs_actuals_by_funds_center WHERE Fiscal_Year = ?",
             [fy],
         )[0],
+    }
+
+
+# ────────────────────────────────────────────────────────────────────
+# FI-ledger view: expenditures by Cost Center × handbook category
+# ────────────────────────────────────────────────────────────────────
+
+# 5xxx GL accounts are expenditures per the SAP convention. The
+# Bridge_Type filter ensures we only attribute to handbook codes for
+# rows where lookup_gl_account actually has a mapping; ~99% of FY26
+# 5xxx dollars are mapped, the remainder lands in the "(unmapped)"
+# bucket of the drill-down. Joining on Bridge_Type IN (...) implicitly
+# filters out rows where Handbook_Type would be NULL anyway, so no
+# Handbook_Type/Type-equality clause is needed here — but every
+# downstream query that joins lookup_gl_account to code_accounting_codes
+# DOES need that filter (see schema.json table-level note).
+
+
+def list_fi_fiscal_years() -> list[int]:
+    """FYs with 5xxx ledger spend in sceis_detail_transaction. Currently
+    co-extensive with FMEDDW (only FY26 loaded for both), but kept
+    separate so that future detail-transaction back-loads of older FYs
+    do not silently appear in the FM dropdown."""
+    rows = fetchall(
+        """
+        SELECT DISTINCT Fiscal_Year
+        FROM sceis_detail_transaction
+        WHERE GL_Account LIKE '5%'
+        ORDER BY 1
+        """
+    )
+    return [r[0] for r in rows]
+
+
+def get_fi_expenditures_by_cost_center(fy: int) -> list[dict[str, Any]]:
+    """Top-level FI ledger expenditures (5xxx GL only) per Cost Center,
+    enriched with friendly Name from agency master and the same
+    Department-grouping rule (BUS shops under Transportation) used by
+    the FM-side view."""
+    rows = fetchall(
+        """
+        WITH spend AS (
+            SELECT
+                Funds_Cost_Center,
+                SUM(Debit_Credit_Amount) AS amt,
+                COUNT(*)                 AS row_count
+            FROM sceis_detail_transaction
+            WHERE Fiscal_Year = ? AND GL_Account LIKE '5%'
+            GROUP BY 1
+        )
+        SELECT
+            s.Funds_Cost_Center,
+            COALESCE(am.Name, s.Funds_Cost_Center) AS Name,
+            CASE
+                WHEN s.Funds_Cost_Center LIKE 'H630BU%' THEN 'Transportation'
+                ELSE COALESCE(am.Name, s.Funds_Cost_Center)
+            END AS Department,
+            s.amt,
+            s.row_count
+        FROM spend s
+        LEFT JOIN sceis_agency_master am ON am.Cost_Center = s.Funds_Cost_Center
+        WHERE s.amt != 0
+        ORDER BY Department, s.Funds_Cost_Center
+        """,
+        [fy],
+    )
+    out = []
+    for fc, name, dept, amt, n in rows:
+        out.append({
+            "cost_center":  fc,
+            "name":         name,
+            "department":   dept,
+            "is_bus_child": fc.startswith("H630BUS"),
+            "amount":       float(amt or 0),
+            "row_count":    int(n or 0),
+        })
+    return out
+
+
+def get_fi_agency_totals(fy: int) -> dict[str, Any]:
+    """Top-line KPIs for the FI ledger expenditure view."""
+    row = fetchone(
+        """
+        SELECT
+            SUM(Debit_Credit_Amount)              AS total,
+            COUNT(*)                              AS rows,
+            COUNT(DISTINCT Funds_Cost_Center)     AS cost_centers
+        FROM sceis_detail_transaction
+        WHERE Fiscal_Year = ? AND GL_Account LIKE '5%'
+        """,
+        [fy],
+    )
+    if row is None:
+        return {}
+    total, n, cc = row
+    coverage = fetchone(
+        """
+        SELECT
+            SUM(CASE WHEN g.Bridge_Type IN ('mechanical','pdf_crosswalk')
+                     THEN d.Debit_Credit_Amount ELSE 0 END) AS mapped,
+            SUM(CASE WHEN g.Bridge_Type IN ('mechanical','pdf_crosswalk')
+                     THEN 0 ELSE d.Debit_Credit_Amount END) AS unmapped
+        FROM sceis_detail_transaction d
+        LEFT JOIN lookup_gl_account g ON g.GL_Account = d.GL_Account
+        WHERE d.Fiscal_Year = ? AND d.GL_Account LIKE '5%'
+        """,
+        [fy],
+    )
+    mapped, unmapped = coverage if coverage else (0, 0)
+    return {
+        "total":           float(total or 0),
+        "row_count":       int(n or 0),
+        "cost_center_count": int(cc or 0),
+        "mapped":          float(mapped or 0),
+        "unmapped":        float(unmapped or 0),
+        "mapped_pct":      (float(mapped or 0) / float(total)) if total else None,
+    }
+
+
+def get_cost_center_handbook_breakdown(cost_center: str, fy: int) -> dict[str, Any]:
+    """Drill-down: per-handbook-category breakdown of FI ledger spend
+    within one cost center. Returns the cost-center summary plus the
+    per-Handbook-Code rows, with unmapped rows lumped into a single
+    "(unmapped)" bucket."""
+    summary_row = fetchone(
+        """
+        SELECT
+            d.Funds_Cost_Center,
+            COALESCE(am.Name, d.Funds_Cost_Center) AS Name,
+            SUM(d.Debit_Credit_Amount)             AS total,
+            COUNT(*)                               AS rows
+        FROM sceis_detail_transaction d
+        LEFT JOIN sceis_agency_master am ON am.Cost_Center = d.Funds_Cost_Center
+        WHERE d.Funds_Cost_Center = ? AND d.Fiscal_Year = ? AND d.GL_Account LIKE '5%'
+        GROUP BY 1, 2
+        """,
+        [cost_center, fy],
+    )
+    if summary_row is None:
+        return {"summary": None, "rows": []}
+    fc, name, total, n = summary_row
+    summary = {
+        "cost_center": fc,
+        "name":        name or fc,
+        "amount":      float(total or 0),
+        "row_count":   int(n or 0),
+    }
+
+    rows = fetchall(
+        """
+        SELECT
+            COALESCE(g.Handbook_Code, '(unmapped)') AS handbook_code,
+            COALESCE(g.Handbook_Name, '(no handbook mapping)') AS handbook_name,
+            SUM(d.Debit_Credit_Amount)              AS amt,
+            COUNT(*)                                AS rows
+        FROM sceis_detail_transaction d
+        LEFT JOIN lookup_gl_account g
+               ON g.GL_Account = d.GL_Account
+              AND g.Bridge_Type IN ('mechanical','pdf_crosswalk')
+        WHERE d.Funds_Cost_Center = ? AND d.Fiscal_Year = ? AND d.GL_Account LIKE '5%'
+        GROUP BY 1, 2
+        ORDER BY amt DESC
+        """,
+        [cost_center, fy],
+    )
+    return {
+        "summary": summary,
+        "rows": [
+            {
+                "handbook_code": hc,
+                "handbook_name": hn,
+                "amount":        float(amt or 0),
+                "row_count":     int(rc or 0),
+            }
+            for hc, hn, amt, rc in rows
+        ],
     }

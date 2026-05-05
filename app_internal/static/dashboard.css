@@ -92,6 +92,14 @@ body {
   text-transform: uppercase; letter-spacing: 0.04em;
 }
 .header-controls { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.header-radio {
+  display: flex; flex-direction: row; align-items: center; gap: var(--space-3);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  padding: 4px 10px; margin: 0; font-size: 13px; color: var(--brand-tertiary);
+  background: #fff;
+}
+.header-radio label { display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
+.header-radio label:has(input:checked) { color: var(--brand-primary); font-weight: 600; }
 .control {
   display: flex; align-items: center; gap: var(--space-2);
   font-size: 12px; color: var(--brand-tertiary);
@@ -316,4 +324,13 @@ body {
   font: 500 12px var(--font-mono);
   color: var(--brand-tertiary);
   margin-left: var(--space-2);
+}
+
+/* FI ledger: unmapped handbook bucket gets a softer treatment */
+.ib-table tr.ci-unmapped {
+  background: #FEF6E7;
+}
+.ib-table tr.ci-unmapped td {
+  color: var(--brand-tertiary);
+  font-style: italic;
 }

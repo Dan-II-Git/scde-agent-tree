@@ -76,6 +76,28 @@ def api_funds_center_detail(
     )
 
 
+# FI ledger — separate view from the FM Budget vs Actuals above.
+# Different data source, different number, by design.
+
+@app.get("/api/report/fi-expenditures")
+def api_fi_expenditures(fy: int = Query(...)) -> HTMLResponse:
+    fys = q.list_fi_fiscal_years()
+    if fy not in fys:
+        raise HTTPException(400, f"FY{fy} has no 5xxx ledger rows; got {fys}")
+    totals = q.get_fi_agency_totals(fy)
+    rows = q.get_fi_expenditures_by_cost_center(fy)
+    return HTMLResponse(r.render_fi_expenditures(fy, totals, rows))
+
+
+@app.get("/api/report/fi-expenditures/cost-center")
+def api_fi_cost_center_detail(
+    cost_center: str = Query(...),
+    fy: int = Query(...),
+) -> HTMLResponse:
+    data = q.get_cost_center_handbook_breakdown(cost_center, fy)
+    return HTMLResponse(r.render_cost_center_handbook_detail(cost_center, fy, data))
+
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 

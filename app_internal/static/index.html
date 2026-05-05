@@ -14,7 +14,7 @@
   <div class="brand">
     <span class="brand-mark"></span>
     <span class="brand-text">SCDE Finance</span>
-    <span class="brand-tag">Internal · Budget vs Actuals</span>
+    <span class="brand-tag">Internal</span>
   </div>
   <div class="status" id="status">checking…</div>
 </header>
@@ -22,13 +22,15 @@
 <main class="grid">
   <section class="panel">
     <header class="panel-header">
-      <h2>Budget vs Actuals</h2>
+      <fieldset class="radio-group header-radio" id="view-tabs">
+        <label><input type="radio" name="view" value="budget" checked> Budget vs Actuals (FM)</label>
+        <label><input type="radio" name="view" value="expenditures"> Expenditures (FI Ledger)</label>
+      </fieldset>
       <div class="header-controls">
         <label class="control">
           FY
           <select id="fy"></select>
         </label>
-        <button class="header-btn" data-action="agency">View agency-wide</button>
       </div>
     </header>
     <section class="output-panel" id="output">

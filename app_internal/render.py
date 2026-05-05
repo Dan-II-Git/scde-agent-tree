@@ -18,6 +18,12 @@ def fmt_money(v: float | int | None) -> str:
     return f"${n:,}"
 
 
+def fmt_int(v: int | float | None) -> str:
+    if v is None:
+        return "n/a"
+    return f"{int(v):,}"
+
+
 def fmt_money_si(v: float | int | None) -> str:
     if v is None:
         return "n/a"
@@ -246,5 +252,160 @@ def render_funds_center_detail(funds_center: str, fy: int,
         {actuals_block}
       </div>
       {methodology}
+    </div>
+    """
+
+
+# ────────────────────────────────────────────────────────────────────
+# FI-ledger view (5xxx GL expenditures)
+# ────────────────────────────────────────────────────────────────────
+
+
+def render_fi_expenditures(fy: int, totals: dict[str, Any], rows: list[dict[str, Any]]) -> str:
+    """Top-level Cost Center expenditure table from the FI ledger.
+    Mirrors the FM-side layout (Name on the far left, BUS-shop indent,
+    Department dividers) so directors can compare the two views without
+    re-orienting."""
+    coverage_note = ""
+    if totals.get("unmapped", 0) > 0:
+        coverage_note = (
+            f' · {fmt_money(totals.get("unmapped"))} unmapped to handbook '
+            f"({(1 - (totals.get('mapped_pct') or 0))*100:.1f}% of rows)"
+        )
+
+    kpi_html = f"""
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Total Expenditures (FI)</div>
+        <div class="kpi-value">{fmt_money(totals.get('total'))}</div></div>
+      <div class="kpi"><div class="kpi-label">Mapped to handbook</div>
+        <div class="kpi-value">{fmt_money(totals.get('mapped'))}</div></div>
+      <div class="kpi"><div class="kpi-label">Cost Centers</div>
+        <div class="kpi-value">{totals.get('cost_center_count', 0)}</div></div>
+      <div class="kpi"><div class="kpi-label">Ledger rows</div>
+        <div class="kpi-value">{fmt_int(totals.get('row_count', 0))}</div></div>
+    </div>
+    """
+
+    body_rows = []
+    prev_dept = None
+    grand_total = totals.get("total") or 0
+    for r in rows:
+        dept_change = (r["department"] != prev_dept)
+        prev_dept = r["department"]
+        row_class = "dept-divider" if dept_change else ""
+        if r["is_bus_child"]:
+            row_class = (row_class + " bus-child").strip()
+            name_cell = (
+                f'<span class="ib-subrow-marker">↳</span>'
+                f'<span class="ib-name-text">{html.escape(r["name"])}</span>'
+            )
+        else:
+            name_cell = f'<span class="ib-name-text">{html.escape(r["name"])}</span>'
+        share = (r["amount"] / grand_total) if grand_total else None
+        bar_pct = max(0.0, min(1.0, share or 0)) * 100
+        body_rows.append(f"""
+          <tr class="{row_class}" data-cc="{html.escape(r['cost_center'])}">
+            <td class="ib-name-cell">{name_cell}</td>
+            <td class="mono">{html.escape(r['cost_center'])}</td>
+            <td class="num">{fmt_money(r['amount'])}</td>
+            <td class="num">{fmt_int(r['row_count'])}</td>
+            <td class="pct-cell">
+              <div class="pct-track"><div class="pct-bar consumed-on-track" style="width:{bar_pct:.1f}%"></div></div>
+              <span class="pct-label">{fmt_pct(share)}</span>
+            </td>
+          </tr>
+        """)
+
+    return f"""
+    <div class="ib-report">
+      <header class="ib-report-header">
+        <h2>FY{fy} Expenditures by Cost Center — FI Ledger</h2>
+        <p class="ib-report-meta">5xxx GL postings from <code>sceis_detail_transaction</code>.
+          Includes payroll / clearing / accruals that FM Actuals exclude — totals will not match the
+          Budget vs Actuals view.{coverage_note}
+          Click any row to drill into the handbook-category breakdown.</p>
+      </header>
+      {kpi_html}
+      <table class="ib-table ib-fc-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Cost Center</th>
+            <th class="num">Expenditures</th>
+            <th class="num">Ledger Rows</th>
+            <th>Share of agency</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(body_rows)}
+        </tbody>
+      </table>
+    </div>
+    """
+
+
+def render_cost_center_handbook_detail(cost_center: str, fy: int, data: dict[str, Any]) -> str:
+    """Drill-down: per-handbook breakdown of FI ledger spend for one Cost Center."""
+    summary = data.get("summary")
+    rows = data.get("rows") or []
+    if summary is None:
+        return f"""<div class="ib-report"><h2>{html.escape(cost_center)}</h2>
+        <p class="ib-empty">No 5xxx ledger activity for this Cost Center in FY{fy}.</p></div>"""
+
+    name = summary.get("name") or cost_center
+    kpi_html = f"""
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Total Expenditures (FI)</div>
+        <div class="kpi-value">{fmt_money(summary.get('amount'))}</div></div>
+      <div class="kpi"><div class="kpi-label">Ledger rows</div>
+        <div class="kpi-value">{fmt_int(summary.get('row_count'))}</div></div>
+    </div>
+    """
+
+    if not rows:
+        body = '<p class="ib-empty">No handbook breakdown available.</p>'
+    else:
+        total = summary.get("amount") or 0
+        body_rows = []
+        for r in rows:
+            share = (r["amount"] / total) if total else None
+            bar_pct = max(0.0, min(1.0, share or 0)) * 100
+            unmapped_class = "ci-unmapped" if r["handbook_code"] == "(unmapped)" else ""
+            body_rows.append(f"""
+              <tr class="{unmapped_class}">
+                <td class="mono">{html.escape(r['handbook_code'])}</td>
+                <td>{html.escape(r['handbook_name'])}</td>
+                <td class="num">{fmt_money(r['amount'])}</td>
+                <td class="num">{fmt_int(r['row_count'])}</td>
+                <td class="pct-cell">
+                  <div class="pct-track"><div class="pct-bar consumed-on-track" style="width:{bar_pct:.1f}%"></div></div>
+                  <span class="pct-label">{fmt_pct(share)}</span>
+                </td>
+              </tr>
+            """)
+        body = f"""
+          <table class="ib-table">
+            <thead>
+              <tr>
+                <th>Handbook</th>
+                <th>Category</th>
+                <th class="num">Expenditures</th>
+                <th class="num">Rows</th>
+                <th>Share</th>
+              </tr>
+            </thead>
+            <tbody>{''.join(body_rows)}</tbody>
+          </table>
+        """
+
+    return f"""
+    <div class="ib-report">
+      <header class="ib-report-header">
+        <h2>{html.escape(name)} <span class="ib-fc-code">{html.escape(cost_center)}</span> — FY{fy}</h2>
+        <p class="ib-report-meta">FI ledger expenditures grouped by handbook Object code.
+          Rows where <code>lookup_gl_account</code> has no mapping land in the <code>(unmapped)</code> bucket.</p>
+      </header>
+      {kpi_html}
+      {body}
     </div>
     """
