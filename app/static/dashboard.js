@@ -101,9 +101,13 @@ function initMap() {
   MAP = L.map("map", {
     center: [33.85, -81.0],
     zoom: 7,
-    minZoom: 6,
-    maxZoom: 10,
-    scrollWheelZoom: true,
+    dragging: false,
+    scrollWheelZoom: false,
+    touchZoom: false,
+    doubleClickZoom: false,
+    boxZoom: false,
+    keyboard: false,
+    zoomControl: false,
     attributionControl: false,
   });
   // No basemap — district polygons are the entire visual; rendered on the
@@ -111,6 +115,12 @@ function initMap() {
   // detail outside SC that distracted from the data.
 
   document.getElementById("map-fy").addEventListener("change", (e) => loadMap(parseInt(e.target.value, 10)));
+  window.addEventListener("resize", () => {
+    if (MAP && GEO_LAYER) {
+      MAP.invalidateSize();
+      MAP.fitBounds(GEO_LAYER.getBounds(), { padding: [8, 8] });
+    }
+  });
   loadMap(parseInt(document.getElementById("map-fy").value, 10));
 }
 
@@ -153,6 +163,8 @@ async function loadMap(fy) {
         });
       },
     }).addTo(MAP);
+    MAP.invalidateSize();
+    MAP.fitBounds(GEO_LAYER.getBounds(), { padding: [8, 8] });
     renderLegend(breaks);
   } catch (exc) {
     console.error(exc);
