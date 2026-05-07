@@ -115,7 +115,13 @@
       "PowerShell(Get-Command *)",
       "Bash(grep -E 'data-cc=|ib-name-text|class=\"num\">\\\\$')",
       "Bash(grep -E \"kpi-\\(label|value\\)|H630LA0010|H630JC0010|TRANSPORTATION|class=\\\\\"num\\\\\">\\\\\\\\\\\\$3,73\")",
-      "Bash(grep -E \"<h2>|kpi-\\(label|value\\)|>700<|>400<|>100<|>200<|TRANSFERS|SUPPLIES|SALARIES|class=\\\\\"num\\\\\">\\\\\\\\\\\\$\")"
+      "Bash(grep -E \"<h2>|kpi-\\(label|value\\)|>700<|>400<|>100<|>200<|TRANSFERS|SUPPLIES|SALARIES|class=\\\\\"num\\\\\">\\\\\\\\\\\\$\")",
+      "Bash(n\\\\\")",
+      "Bash(Select-String -Pattern 'dragging|fitBounds|zoomControl')",
+      "Bash(Select-Object -First 8\")",
+      "PowerShell(\\(Invoke-WebRequest -Uri 'http://127.0.0.1:8765/static/dashboard.js' -UseBasicParsing\\).Content -split \"`n\" | Select-String -Pattern 'dragging|fitBounds|zoomControl' | Select-Object -First 8)",
+      "PowerShell($r = Invoke-WebRequest -Uri 'http://127.0.0.1:8765/api/map?fy=2025' -UseBasicParsing; $j = $r.Content | ConvertFrom-Json; \"features: $\\($j.features.Count\\); type: $\\($j.type\\)\")",
+      "PowerShell(Stop-Process *)"
     ]
   }
 }
