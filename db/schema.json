@@ -485,6 +485,123 @@
         "Source_Row_Labels": "Comma-separated list of source xlsx row labels that contributed to this Category row. Provenance trace for audit. Example: 'AUT, EH, EM H, HH, LD, OH, SP H, TM, VH' for SPED."
       }
     },
+    "bex_fm_expense": {
+      "purpose": "SAP Funds Management Expense BEx extract — one row per (cost center, fund, grant, appropriation, commitment item, vendor) combination per fiscal year, with expenditure broken out by quarter. Loaded from the '2025/2026 Funds Mgmt Expense BEx' sheets in data/uploads/Dan's Reports.xlsx. This is the expense-leg view of the same FI documents that appear in sceis_fi_payments (AP-leg). Join key: Funds_Cost_Center matches sceis_fi_payments via Doc_Number when the BEx FI_Doc_Number bridge is populated.",
+      "stability": "stable",
+      "source": "data/uploads/Dan's Reports.xlsx · sheets '2025 Funds Mgmt Expense BEx' + '2026 Funds Mgmt Expense BEx' · loaded by scripts/ingest_bex_reports.py",
+      "load_caveats": [
+        "Amounts are NEGATIVE for expense per SAP BEx convention. Do NOT flip signs — views that consume this table apply ABS() or negation explicitly. Positive amounts are credits/reversals within a document.",
+        "SAP footer rows (where Funds_Cost_Center is NULL, empty, or equals 'Result') are stripped at load to prevent double-counting. The stripped 'Result' row holds the grand total — verified against FY25 Amount_FM sum in bex_fi_vendor_invoice.",
+        "Fiscal_Year is stamped from the sheet name prefix (2025 or 2026), not from row-level date math.",
+        "FY_Total = Qtr_01 + Qtr_02 + Qtr_03 + Qtr_04 + YE_Adj. Matches bex_fi_vendor_invoice FY totals after footer strip."
+      ],
+      "columns": {
+        "Business_Area": "SAP business area. Always 'H630' (SCDE) in this extract.",
+        "Funds_Cost_Center": "SAP Funds Management cost center. Joins to sceis_agency_master.Cost_Center. Footer rows where this is NULL or 'Result' are stripped at load.",
+        "Fund": "8-character SAP fund code. Joins to bex_budget_vs_actuals.Fund_Code via dim_fund_mapping.json.",
+        "Grant": "SAP grant number. 'NOT RELEVANT' for non-grant-funded rows.",
+        "State_Appropriation": "State appropriation code in dotted format (e.g., '0107.000000.000'). Joins to sceis_agency_master.State_Funded_Program.",
+        "Agency_Appropriation": "Agency appropriation code in H630XXXXXX_XXXX format. Joins to sceis_agency_master.AGY_Funded_Program.",
+        "Commitment_Item": "SAP commitment item (10-digit). Maps to a G/L account family. Joins to bex_budget_vs_actuals.Commitment_Item (leaf level).",
+        "GL_Account": "10-digit SAP G/L account. Joins to lookup_gl_account for handbook-level grouping.",
+        "Vendor_Number": "SAP vendor number. '#' means no vendor assigned.",
+        "Vendor_Name": "Vendor display name. 'Not assigned' when Vendor_Number is '#'.",
+        "Qtr_01": "Expenditure for fiscal quarter 1 (Jul-Sep). NEGATIVE = expense per SAP BEx convention. Do NOT flip sign — views apply negation/ABS explicitly.",
+        "Qtr_02": "Expenditure for fiscal quarter 2 (Oct-Dec). NEGATIVE = expense. Keep as-is.",
+        "Qtr_03": "Expenditure for fiscal quarter 3 (Jan-Mar). NEGATIVE = expense. Keep as-is.",
+        "Qtr_04": "Expenditure for fiscal quarter 4 (Apr-Jun). NEGATIVE = expense. Keep as-is.",
+        "YE_Adj": "Year-end adjustment amount. NEGATIVE = expense. Keep as-is.",
+        "FY_Total": "Full-year expenditure total (sum of Qtr_01..Qtr_04 + YE_Adj). NEGATIVE = expense. This is the expense-leg side of FI documents; matches sceis_fi_payments totals once the SAP Overall Result footer is stripped.",
+        "Fiscal_Year": "SC fiscal year (Jul-Jun ending year). Stamped from sheet name, not row dates."
+      }
+    },
+    "bex_open_encumbrances": {
+      "purpose": "SAP Open Encumbrance BEx extract — one row per open commitment document line (purchase orders, funds reservations, parked FI documents) as of the extract date. Shows what budget has been committed but not yet fully invoiced. Loaded from the '2025/2026 Open Encumbrance BEx' sheets in data/uploads/Dan's Reports.xlsx.",
+      "stability": "stable",
+      "source": "data/uploads/Dan's Reports.xlsx · sheets '2025 Open Encumbrance BEx' + '2026 Open Encumbrance BEx' · loaded by scripts/ingest_bex_reports.py",
+      "load_caveats": [
+        "The SAP 'Overall Result' grand-total footer row is dropped at load (identified by Business_Area = 'Overall Result'). This row holds the cross-document sum and would double the total.",
+        "FY25 Remaining_Balance sum is $0 — all FY25 encumbrances were fully settled or invoiced by the extract date. FY26 sum is $80,571,121.90 (open at extract time).",
+        "Fiscal_Year is stamped from sheet name, not from Document_Date.",
+        "Order_Num and WBS_Element contain '#' when not applicable (no open order / no WBS). The blank sub-columns (SAP code+description pairs) are not loaded — only the code field is retained."
+      ],
+      "columns": {
+        "Business_Area": "SAP business area. Always 'H630' (SCDE) in this extract.",
+        "Fund": "8-character SAP fund code.",
+        "Funded_Program": "SAP funded program code in H630XXXXXX_XXXX format.",
+        "Funds_Center": "SAP Funds Management cost center. Joins to sceis_agency_master.Cost_Center.",
+        "Commitment_Item": "SAP commitment item (10-digit). Maps to a G/L account family.",
+        "Detail_Type": "Commitment category: 'Purchase Order', 'Funds Reservation', or 'Parked FI Document'.",
+        "Reference_Doc_No": "Source document number (PO number, funds reservation number, or parked FI doc number).",
+        "Document_Date": "Date the commitment document was created.",
+        "Vendor_Number": "SAP vendor number for the commitment.",
+        "Vendor_Name": "Vendor display name.",
+        "Order_Num": "SAP internal order number linked to the commitment. '#' = no internal order.",
+        "WBS_Element": "Work breakdown structure element. '#' = no WBS.",
+        "Original_Amount": "Original committed amount at document creation. POSITIVE.",
+        "Adjustments": "Net adjustments to the original commitment since creation. Signed; typically negative as invoices arrive and consume the PO budget.",
+        "Invoiced_Amount": "Amount invoiced against this commitment. NEGATIVE (consumed/paid out).",
+        "Goods_Receipt_Valuated": "Goods receipt valuation amount for POs with GR/IV processing. Often NULL for service POs.",
+        "Remaining_Balance": "Uncommitted balance remaining: Original_Amount + Adjustments + Invoiced_Amount + Goods_Receipt_Valuated. Zero = fully consumed. The SAP Overall Result footer row is stripped at load to prevent double-counting.",
+        "Fiscal_Year": "SC fiscal year (Jul-Jun ending year). Stamped from sheet name, not row dates."
+      }
+    },
+    "bex_budget_vs_actuals": {
+      "purpose": "SAP Budget vs Actuals BEx extract — one row per (fund, commitment item) combination per fiscal year, showing budget, actuals, and remaining balance at the fund+CI grain. This is the primary BEx budget source for internal analysis. Loaded from the '2025/2026 Budget v Actual BEx' sheets in data/uploads/Dan's Reports.xlsx. Complements sceis_fmeddw (FM document-level) with a pre-pivoted BEx view.",
+      "stability": "stable",
+      "source": "data/uploads/Dan's Reports.xlsx · sheets '2025 Budget v Actual BEx' + '2026 Budget v Actual BEx' · loaded by scripts/ingest_bex_reports.py",
+      "load_caveats": [
+        "No SAP grand-total footer row exists in these sheets — the last data rows are genuine zero-budget lines for the final fund's commitment items.",
+        "Fund_Code is mapped from Fund_Name via db/dim_fund_mapping.json. 27 of 28 funds are mapped (HIGH or MEDIUM confidence). HR PAYROLL TEMP FUND has Fund_Code=NULL — it carries zero budget and zero actuals in both FY25 and FY26.",
+        "Commitment_Item string length determines CI_Level: 6-character codes are parent rollup nodes (CI_Level=6); 10-character codes are leaf items (CI_Level=10). Do not mix levels in aggregations — parent rows partially overlap with the sum of their children.",
+        "YTD_Actual_Expense is NEGATIVE for expense rows (SAP BEx convention). Use ABS() when comparing to budget figures. This differs from the FMEDDW Actuals column, which measures budget authority consumed via the GM module.",
+        "Fiscal_Year is stamped from sheet name, not from row dates."
+      ],
+      "columns": {
+        "Fund_Name": "SAP fund display name as it appears in BEx (e.g., 'GENERAL FUND', 'FEDERAL'). Join key to Fund_Code via dim_fund_mapping.json.",
+        "Fund_Code": "8-character SAP fund code mapped from Fund_Name via db/dim_fund_mapping.json (27-of-28 funds mapped; NULL for HR PAYROLL TEMP FUND which has zero budget and zero actuals in both FY25 and FY26).",
+        "Commitment_Item": "SAP Commitment Item code. 6-character codes are parent rollup nodes (CI_Level=6); 10-character codes are leaf items (CI_Level=10). Do not mix levels in aggregations.",
+        "CI_Level": "Derived from Commitment_Item string length: 6 = parent rollup, 10 = leaf item. Filter CI_Level=10 for leaf-level budget analysis to avoid double-counting.",
+        "Original_Budget": "Budget as originally appropriated at fiscal year start.",
+        "Budget_Adjustments": "Net budget adjustments (transfers, supplements, carryforward) posted after the original appropriation. Signed; positive = budget added, negative = budget reduced.",
+        "Current_Budget": "Effective current budget: Original_Budget + Budget_Adjustments.",
+        "MTD_Actual_Expense": "Month-to-date actual expenditure at the time of BEx extract. Signed per BEx convention (negative = expense for most extract flavors; verify sign before use).",
+        "YTD_Actual_Expense": "Year-to-date actual expenditure at the time of BEx extract. NEGATIVE for expense rows (SAP BEx convention). Use ABS() when comparing to budget figures.",
+        "Balance_Before_Commitments": "Remaining budget before open commitments (POs, reservations) are deducted: Current_Budget + YTD_Actual_Expense (signs cancel).",
+        "Open_Commitments": "Sum of outstanding purchase orders, funds reservations, and parked documents that have not yet been invoiced. NEGATIVE (reduces available budget).",
+        "Remaining_Balance": "Final remaining budget after commitments: Balance_Before_Commitments + Open_Commitments.",
+        "Fiscal_Year": "SC fiscal year (Jul-Jun ending year). Stamped from sheet name, not row dates."
+      }
+    },
+    "bex_fi_vendor_invoice": {
+      "purpose": "SAP FI Vendor Invoice BEx extract — one row per FI document line posted against the SCDE (H630) business area, showing the expense-leg side of vendor invoices. This is the expense counterpart to sceis_fi_payments, which holds the AP-leg (clearing/payment) side. Join key: FI_Doc_Number = sceis_fi_payments.Doc_Number. FY25 Amount_FM total ($7.318B) matches sceis_fi_payments FY25 total once the SAP Overall Result footer is stripped. Loaded from the '2025/2026 FI Vendor Invoice BEx' sheets in data/uploads/Dan's Reports.xlsx.",
+      "stability": "stable",
+      "source": "data/uploads/Dan's Reports.xlsx · sheets '2025 FI Vendor Invoice BEx' + '2026 FI Vendor Invoice BEx' · loaded by scripts/ingest_bex_reports.py",
+      "load_caveats": [
+        "Rows where FI_Doc_Number IS NULL are SAP 'Overall Result' grand-total footer rows and are dropped at load. This is the critical footer-strip that prevents doubling the total — the footer row's Amount_FM equals the full-sheet sum.",
+        "Amount_FM sign convention: POSITIVE = expense. Occasional negative rows (~2.5% of rows) are within-document credits, reversals, or AP clearing offsets. Keep as-is; do NOT abs() before aggregation.",
+        "FI_Doc_Number joins to sceis_fi_payments.Doc_Number (AP-leg side of the same documents). The two sources measure the same flows from different posting legs and sum to identical FY totals after footer strip. Earlier 2x-total discrepancies were caused by the footer row — not a genuine mismatch.",
+        "Fiscal_Year is stamped from sheet name, not from Posting_Date."
+      ],
+      "columns": {
+        "Vendor_Number": "SAP vendor number.",
+        "Vendor_Name": "Vendor display name.",
+        "FI_Doc_Number": "SAP FI document number. Join key to sceis_fi_payments.Doc_Number (AP-leg). Rows where this is NULL are SAP Overall Result footer rows and are dropped at load.",
+        "Purchase_Order": "Purchase order number linked to this invoice, if applicable. '#' = no PO (direct FI invoice).",
+        "Document_Type": "SAP FI document type (e.g., KI = vendor invoice, RE = invoice gross, ZP = payment).",
+        "Document_Type_Desc": "Human-readable description of Document_Type (e.g., 'Interface Vend Inv.', 'Invoice - gross').",
+        "GL_Account": "10-digit SAP G/L account. Joins to lookup_gl_account for handbook-level grouping.",
+        "GL_Account_Name": "Display name for the GL_Account from the BEx extract.",
+        "Posting_Date": "Date the invoice was posted to the FI ledger.",
+        "Funds_Center": "SAP Funds Management cost center. Joins to sceis_agency_master.Cost_Center.",
+        "Functional_Area": "SAP CO functional area in H630_XXXX format. Joins to sceis_agency_master.Functional_Area.",
+        "Functional_Area_Desc": "Human-readable description of Functional_Area.",
+        "Grant": "SAP grant number. 'NOT RELEVANT' for non-grant-funded rows.",
+        "Fund": "8-character SAP fund code.",
+        "Amount_FM": "Amount in FM area currency (USD). POSITIVE = expense (income/credits are negative, ~2.5% of rows). Keep as-is; do NOT abs() before aggregation. FY25 sum ~$7.319B matches sceis_fi_payments FY25 total after footer strip.",
+        "Fiscal_Year": "SC fiscal year (Jul-Jun ending year). Stamped from sheet name, not row dates."
+      }
+    },
     "lea_ita": {
       "purpose": "Index of Taxpaying Ability (ITA) reference table used in the SAC equalization formula. Each row is one district for one Index Year. ITA values sum to 1.0 statewide and represent each district's share of assessed property wealth. Charter authorizers (4701/4801/4901) are correctly absent — they have no local tax base.",
       "stability": "stable",

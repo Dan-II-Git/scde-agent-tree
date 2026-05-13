@@ -1,14 +1,17 @@
 // SCDE Internal Budget Dashboard — frontend wiring.
 //
-// Two views share the same FY dropdown:
-//   - "budget"        → FM Budget vs Actuals (sceis_fmeddw + view)
-//   - "expenditures"  → FI ledger expenditures (5xxx GL)
+// Four views share the same FY dropdown:
+//   "budget"        → FM Budget vs Actuals by Funds Center
+//   "fund"          → Agency Budget by Fund (BEx authoritative budget)
+//   "commitments"   → H630 Open POs (BEx Open Encumbrances)
+//   "expenditures"  → FI Ledger Expenditures (5xxx GL)
 
 const statusEl = document.getElementById("status");
 const outputEl = document.getElementById("output");
 const fyEl     = document.getElementById("fy");
 
-let YEARS = [];
+let YEARS    = [];
+let FY_META  = {};   // { 2025: {status, as_of_date}, 2026: {...} }
 let CURRENT_FY = null;
 
 (async function init() {
@@ -23,12 +26,24 @@ let CURRENT_FY = null;
     }
     YEARS = ys.fys || [];
     if (!YEARS.length) {
-      setStatus("err", "no FMEDDW data loaded");
+      setStatus("err", "no FM data loaded");
       return;
     }
     CURRENT_FY = ys.default || YEARS.at(-1);
-    setStatus("ok", `FMEDDW: FY${YEARS[0]}–FY${YEARS.at(-1)}`);
-    fyEl.innerHTML = YEARS.map((fy) => `<option value="${fy}">FY${fy}</option>`).join("");
+    FY_META    = h.fy_status || {};
+
+    // Status line: show partial indicator if latest FY is partial
+    const latestMeta = FY_META[String(CURRENT_FY)] || {};
+    const partialTag = latestMeta.status === "Partial"
+      ? ` · YTD through ${latestMeta.as_of_date || "?"}`
+      : "";
+    setStatus("ok", `FY${YEARS[0]}–FY${YEARS.at(-1)}${partialTag}`);
+
+    fyEl.innerHTML = YEARS.map((fy) => {
+      const meta = FY_META[String(fy)] || {};
+      const tag  = meta.status === "Partial" ? " (YTD)" : "";
+      return `<option value="${fy}">FY${fy}${tag}</option>`;
+    }).join("");
     fyEl.value = CURRENT_FY;
 
     fyEl.addEventListener("change", () => loadActiveView());
@@ -58,9 +73,14 @@ function activeFy() {
 
 async function loadActiveView() {
   const view = activeView();
-  if (view === "expenditures") return loadFiExpenditures(activeFy());
-  return loadAgency(activeFy());
+  const fy   = activeFy();
+  if (view === "expenditures")  return loadFiExpenditures(fy);
+  if (view === "fund")          return loadBudgetByFund(fy);
+  if (view === "commitments")   return loadOpenCommitments(fy);
+  return loadAgency(fy);
 }
+
+// ── FM Budget vs Actuals by Funds Center ──
 
 async function loadAgency(fy) {
   outputEl.innerHTML = '<div class="output-loading">Loading FM Budget vs Actuals…</div>';
@@ -71,21 +91,12 @@ async function loadAgency(fy) {
   } catch (e) { showError(e.message); }
 }
 
-async function loadFiExpenditures(fy) {
-  outputEl.innerHTML = '<div class="output-loading">Loading FI Ledger Expenditures…</div>';
-  try {
-    const html = await fetch(`/api/report/fi-expenditures?fy=${fy}`).then(r => r.text());
-    outputEl.innerHTML = html;
-    bindRowClicks(".ib-fc-table tbody tr[data-cc]", "cc", (cc) => loadCostCenterDetail(cc, fy));
-  } catch (e) { showError(e.message); }
-}
-
 async function loadFundsCenter(fc, fy) {
   outputEl.innerHTML = `<div class="output-loading">Loading ${escapeHtml(fc)}…</div>`;
   try {
     const html = await fetch(`/api/report/funds-center?funds_center=${encodeURIComponent(fc)}&fy=${fy}`).then(r => r.text());
     outputEl.innerHTML = `
-      <div class="ib-back"><a href="#" id="back-link">← Back to all funds centers</a></div>
+      <div class="ib-back"><a href="#" id="back-link">&#8592; Back to all Funds Centers</a></div>
       ${html}
     `;
     document.getElementById("back-link").addEventListener("click", (e) => {
@@ -95,12 +106,43 @@ async function loadFundsCenter(fc, fy) {
   } catch (e) { showError(e.message); }
 }
 
+// ── Agency Budget by Fund ──
+
+async function loadBudgetByFund(fy) {
+  outputEl.innerHTML = '<div class="output-loading">Loading Agency Budget by Fund…</div>';
+  try {
+    const html = await fetch(`/api/report/budget-by-fund?fy=${fy}`).then(r => r.text());
+    outputEl.innerHTML = html;
+  } catch (e) { showError(e.message); }
+}
+
+// ── H630 Open Commitments ──
+
+async function loadOpenCommitments(fy) {
+  outputEl.innerHTML = '<div class="output-loading">Loading H630 Open Commitments…</div>';
+  try {
+    const html = await fetch(`/api/report/open-commitments?fy=${fy}`).then(r => r.text());
+    outputEl.innerHTML = html;
+  } catch (e) { showError(e.message); }
+}
+
+// ── FI Ledger Expenditures ──
+
+async function loadFiExpenditures(fy) {
+  outputEl.innerHTML = '<div class="output-loading">Loading FI Ledger Expenditures…</div>';
+  try {
+    const html = await fetch(`/api/report/fi-expenditures?fy=${fy}`).then(r => r.text());
+    outputEl.innerHTML = html;
+    bindRowClicks(".ib-fc-table tbody tr[data-cc]", "cc", (cc) => loadCostCenterDetail(cc, fy));
+  } catch (e) { showError(e.message); }
+}
+
 async function loadCostCenterDetail(cc, fy) {
   outputEl.innerHTML = `<div class="output-loading">Loading ${escapeHtml(cc)}…</div>`;
   try {
     const html = await fetch(`/api/report/fi-expenditures/cost-center?cost_center=${encodeURIComponent(cc)}&fy=${fy}`).then(r => r.text());
     outputEl.innerHTML = `
-      <div class="ib-back"><a href="#" id="back-link">← Back to all cost centers</a></div>
+      <div class="ib-back"><a href="#" id="back-link">&#8592; Back to all cost centers</a></div>
       ${html}
     `;
     document.getElementById("back-link").addEventListener("click", (e) => {
@@ -109,6 +151,8 @@ async function loadCostCenterDetail(cc, fy) {
     });
   } catch (e) { showError(e.message); }
 }
+
+// ── Utilities ──
 
 function bindRowClicks(selector, dataKey, handler) {
   outputEl.querySelectorAll(selector).forEach((tr) => {

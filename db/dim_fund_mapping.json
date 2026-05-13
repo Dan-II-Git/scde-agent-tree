@@ -1,0 +1,39 @@
+{
+  "_metadata": {
+    "generated": "2026-05-13",
+    "source_names": "Budget v Actual BEx tabs (2025 + 2026) in data/uploads/Dan's Reports.xlsx",
+    "source_codes": "FM Expense BEx tabs (2025 + 2026) and sceis_fmeddw.Fund",
+    "matching_method": "Three-pass: (1) dollar-signature exact match BvA YTD vs FM Expense FY Total; (2) Commitment-Item set Jaccard similarity for zero-actuals funds; (3) CI-exact match against sceis_fmeddw for funds absent from FM Expense BEx",
+    "confidence_levels": "HIGH = dollar-exact or CI-exact or Jaccard >= 0.72; MEDIUM = Jaccard 0.50 with no competing code; NULL = no reliable match found"
+  },
+  "mapping": {
+    "GENERAL FUND":          { "Fund_Code": "10010000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "GF-NONRECUR APROP-23":  { "Fund_Code": "10050023", "confidence": "HIGH",   "method": "dollar-exact" },
+    "GF-NONRECUR APROP-24":  { "Fund_Code": "10050024", "confidence": "HIGH",   "method": "dollar-exact" },
+    "GF-NONRECUR APROP-25":  { "Fund_Code": "10050025", "confidence": "HIGH",   "method": "dollar-exact" },
+    "GF-NONRECUR APROP-26":  { "Fund_Code": "10050026", "confidence": "HIGH",   "method": "dollar-exact" },
+    "EARMARKED FUNDS":       { "Fund_Code": "30000000", "confidence": "HIGH",   "method": "CI-exact vs sceis_fmeddw (all 7 CIs match, fund absent from FM Expense BEx)" },
+    "OPERATING REVENUE":     { "Fund_Code": "30350000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "K-12 SCHOOL TECH":      { "Fund_Code": "33290000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "INVENTORY REVOLVING":   { "Fund_Code": "35280000", "confidence": "MEDIUM", "method": "CI Jaccard=0.500 vs FM Expense BEx; only remaining unmatched code; consistent with standard SC Inventory Revolving Fund identity" },
+    "CAP RES FD OPER":       { "Fund_Code": "36340000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "MEDICAID ASST PAY":     { "Fund_Code": "37640000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "RESTRICTED FUNDS":      { "Fund_Code": "40000000", "confidence": "HIGH",   "method": "CI Jaccard=0.969 vs sceis_fmeddw (63 of 65 CIs match)" },
+    "AFS-SC FIRST STEP-OT":  { "Fund_Code": "42209000", "confidence": "HIGH",   "method": "CI Jaccard=0.720 vs FM Expense BEx; H630Q-prefix agency appropriations confirm First Steps sub-fund" },
+    "EDUCATION LOTTERY":     { "Fund_Code": "43B10000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "EDUC SCHOLARSHIP FD":   { "Fund_Code": "48050000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "EDUC IMPROVEMENT":      { "Fund_Code": "49730000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "AFS-FIRST STEPS P&A":   { "Fund_Code": "49739001", "confidence": "HIGH",   "method": "CI Jaccard=0.754 vs FM Expense BEx; H630Q-prefix agency appropriations confirm First Steps sub-fund" },
+    "AFS-FIRST STEPS PR4K":  { "Fund_Code": "49739003", "confidence": "HIGH",   "method": "CI Jaccard=0.855 vs FM Expense BEx; H630Q-prefix agency appropriations confirm First Steps sub-fund" },
+    "AFS-FIRST STEPS CHIL":  { "Fund_Code": "49739004", "confidence": "HIGH",   "method": "CI Jaccard=0.733 vs FM Expense BEx; H630Q-prefix agency appropriations confirm First Steps sub-fund" },
+    "FEDERAL OPERATING":     { "Fund_Code": "50380000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "FEDERAL":               { "Fund_Code": "50550000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "FEDERAL FUNDS":         { "Fund_Code": "50000000", "confidence": "HIGH",   "method": "CI Jaccard=0.778 vs sceis_fmeddw (7 of 9 CIs match); fund absent from FM Expense BEx" },
+    "CRRSAA - 2021":         { "Fund_Code": "51C60001", "confidence": "HIGH",   "method": "dollar-exact" },
+    "ARP - ESSER":           { "Fund_Code": "51C70007", "confidence": "HIGH",   "method": "dollar-exact" },
+    "SCHOOL FOOD SERV-FED":  { "Fund_Code": "55320000", "confidence": "HIGH",   "method": "dollar-exact" },
+    "FED INTERFD/AGY - PT":  { "Fund_Code": "55420P00", "confidence": "HIGH",   "method": "dollar-exact" },
+    "AFS-FIRST STEPS-FED":   { "Fund_Code": "58K69000", "confidence": "HIGH",   "method": "CI Jaccard=0.562 vs FM Expense BEx; H630Q-prefix agency appropriations confirm First Steps sub-fund" },
+    "HR PAYROLL TEMP FUND":  { "Fund_Code": null,        "confidence": null,     "method": "No match found. Fund has zero budget and zero actuals in both FY25 and FY26 BvA; no unique CI set distinguishes it from a specific FM code. All candidate codes already matched to other names. Treat as NULL until SAP fund registry is consulted." }
+  }
+}

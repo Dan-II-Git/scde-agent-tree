@@ -334,3 +334,150 @@ body {
   color: var(--brand-tertiary);
   font-style: italic;
 }
+
+/* ────────── Negative currency (accounting parentheses) ────────── */
+.num-neg {
+  color: var(--semantic-danger);
+  font-family: var(--font-mono);
+}
+
+/* ────────── Partial-FY badge ────────── */
+.fy-partial-badge {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 1px 6px;
+  font-size: 10px; font-weight: 600;
+  background: #FFF3CD;
+  color: var(--semantic-warning);
+  border: 1px solid var(--semantic-warning);
+  border-radius: 999px;
+  vertical-align: middle;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+/* ────────── Table header sub-note ────────── */
+.th-note {
+  font-size: 10px; font-weight: 400;
+  color: var(--brand-tertiary);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ────────── KPI sub-label ────────── */
+.kpi-sub {
+  font-size: 10px;
+  color: var(--brand-tertiary);
+  margin-top: 2px;
+}
+
+/* ────────── n/a and tracked-at-fund-level note ────────── */
+.na-note {
+  font-size: 11px;
+  color: var(--brand-tertiary);
+  font-style: italic;
+  font-family: var(--font-display);
+}
+
+/* ────────── Caveat note box ────────── */
+.ib-caveat-note {
+  margin: 0 0 var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  background: #FFF7E6;
+  border-left: 3px solid var(--brand-accent);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--neutral-fg);
+}
+.ib-caveat-note.ib-caveat-warn {
+  background: #FFF0F0;
+  border-left-color: var(--semantic-danger);
+}
+
+/* ────────── Wide CI block (BEx expense table) ────────── */
+.ib-ci-block-wide {
+  background: var(--neutral-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+}
+.ib-ci-block-wide-wrap {
+  margin-bottom: var(--space-3);
+}
+
+/* ────────── Collapsible sections ────────── */
+.ib-collapsible-header {
+  cursor: pointer;
+  user-select: none;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-2) 0;
+  font-size: 13px; font-weight: 600;
+  color: var(--brand-primary);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-2);
+}
+.ib-collapsible-header:hover { color: var(--brand-tertiary); }
+.ib-collapsible-toggle {
+  font-size: 10px;
+  color: var(--brand-tertiary);
+  margin-left: var(--space-2);
+}
+.ib-collapsible-body { margin-top: var(--space-2); }
+
+/* ────────── Encumbrances section ────────── */
+.ib-enc-section {
+  margin-bottom: var(--space-4);
+}
+.ib-enc-table { font-size: 12px; }
+.ib-enc-table .enc-over-invoiced td {
+  background: #FFF0F0;
+  color: var(--semantic-danger);
+}
+
+/* ────────── Open Commitments card list ────────── */
+.ib-enc-card-list {
+  display: flex; flex-direction: column; gap: var(--space-2);
+}
+.ib-enc-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  overflow: hidden;
+}
+.ib-enc-card-header {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--neutral-bg);
+  cursor: pointer;
+  user-select: none;
+}
+.ib-enc-card-header:hover { background: var(--border-subtle); }
+.ib-enc-fc {
+  flex: 0 0 auto;
+  font-size: 13px; color: var(--brand-primary);
+}
+.ib-enc-total {
+  flex: 1;
+  font: 600 13px var(--font-mono);
+  color: var(--brand-primary);
+}
+.enc-over-badge {
+  font-size: 11px; font-weight: 600;
+  color: var(--semantic-danger);
+  margin-left: var(--space-2);
+  font-family: var(--font-mono);
+}
+.ib-enc-card-body {
+  padding: var(--space-2) var(--space-3);
+  overflow-x: auto;
+}
+.ib-enc-type-table { font-size: 12px; }
+
+/* ────────── Tippy CI tooltip styling ────────── */
+.tippy-ci {
+  cursor: help;
+  border-bottom: 1px dashed var(--brand-tertiary);
+}
