@@ -121,7 +121,21 @@
       "Bash(Select-Object -First 8\")",
       "PowerShell(\\(Invoke-WebRequest -Uri 'http://127.0.0.1:8765/static/dashboard.js' -UseBasicParsing\\).Content -split \"`n\" | Select-String -Pattern 'dragging|fitBounds|zoomControl' | Select-Object -First 8)",
       "PowerShell($r = Invoke-WebRequest -Uri 'http://127.0.0.1:8765/api/map?fy=2025' -UseBasicParsing; $j = $r.Content | ConvertFrom-Json; \"features: $\\($j.features.Count\\); type: $\\($j.type\\)\")",
-      "PowerShell(Stop-Process *)"
+      "PowerShell(Stop-Process *)",
+      "Bash(findstr -E \"8765|8766\")",
+      "Bash(Get-Content \"C:\\\\Users\\\\DAN'ST~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Dan-s-Test-Device-Finance-Dazzle-scde-agent-tree\\\\78c6025c-81b9-46b2-991b-709a53e11d82\\\\tasks\\\\bdtvm87o3.output\" -Wait -Tail 30)",
+      "Bash(Start-Sleep -Seconds 2)",
+      "Bash(./.venv/Scripts/python.exe -m app_internal.server)",
+      "Bash(grep -oE '\\(-\\\\$|\\\\$\\\\-|\\\\$\\\\\\(|num-neg\\)')",
+      "Bash(taskkill //F //PID 3588)",
+      "Bash(start \"\" http://127.0.0.1:8766/)",
+      "WebFetch(domain:ed.sc.gov)",
+      "Bash(taskkill //F //PID 19748)",
+      "Bash(taskkill /PID 16292 /F)",
+      "Bash(start \"\" cmd /c start-internal-dashboard.cmd)",
+      "PowerShell(Start-Process -FilePath \"cmd.exe\" -ArgumentList \"/c start-internal-dashboard.cmd\" -WindowStyle Hidden; Start-Sleep -Seconds 5; \\(Invoke-WebRequest -Uri \"http://localhost:8766/health\" -UseBasicParsing\\).Content)",
+      "PowerShell(Start-Process \"http://localhost:8766\")",
+      "Bash(git commit *)"
     ]
   }
 }
