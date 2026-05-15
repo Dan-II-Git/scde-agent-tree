@@ -133,21 +133,35 @@ def render_budget_vs_actuals(
     totals: dict[str, Any],
     rows: list[dict[str, Any]],
     fy_meta: dict[str, Any] | None = None,
+    fa_by_fc: dict[str, list[dict[str, Any]]] | None = None,
 ) -> str:
-    """Top-level page: agency KPIs + table of Funds Centers.
-    Extends original with: partial-FY badge, Open Encumbrances column,
-    True_Available column, FY25+26 coverage note.
+    """Top-level page: agency KPIs + three-level hierarchy table (Division → Office → Funds Center).
+
+    Hierarchy structure:
+      - Division header row (prominent, design-token styled)
+        - Office sub-header row
+          - For Transportation: grouped under Depot / Bus Shop sub-categories
+          - Funds Center leaf rows (click to drill into Commitment Items)
+
+    Partial-FY badge, Open Encumbrances column, True_Available column, and
+    accounting-parentheses negative formatting are all preserved.
     """
     badge = partial_badge(fy_meta)
     pct_class = consumption_class(totals.get("pct_consumed"))
 
     # Budget KPI: may be NULL for FY25 (BEx actuals-only year)
     budget_val = totals.get("total_budget")
-    budget_display = fmt_money(budget_val) if budget_val is not None else '<span class="na-note">tracked at Fund level</span>'
+    budget_display = (
+        fmt_money(budget_val) if budget_val is not None
+        else '<span class="na-note">tracked at Fund level</span>'
+    )
 
     # True_Available preferred; fall back to Available
     ta_val = totals.get("true_available")
-    avail_display = fmt_money(ta_val) if ta_val is not None else fmt_money(totals.get("available"))
+    avail_display = (
+        fmt_money(ta_val) if ta_val is not None
+        else fmt_money(totals.get("available"))
+    )
 
     kpi_html = f"""
     <div class="kpi-row">
@@ -170,47 +184,156 @@ def render_budget_vs_actuals(
     </div>
     """
 
-    body_rows = []
-    prev_dept = None
+    # ── Build three-level hierarchy: Division → Office → (sub_category →) FC ──
+    # Group rows preserving ORDER BY Division, Office, Funds_Center from the query
+    from collections import defaultdict, OrderedDict
+
+    # divisions[division][office] = list of rows
+    # We preserve insertion order so the SQL sort is respected
+    divisions: OrderedDict[str, OrderedDict[str, list[dict[str, Any]]]] = OrderedDict()
     for row in rows:
+        div = row["division"] or "Unknown"
+        office = row["office"] or "Unknown"
+        if div not in divisions:
+            divisions[div] = OrderedDict()
+        if office not in divisions[div]:
+            divisions[div][office] = []
+        divisions[div][office].append(row)
+
+    row_badge = partial_badge(fy_meta) if fy_meta and fy_meta.get("status") == "Partial" else ""
+
+    fa_lookup = fa_by_fc or {}
+
+    def _fc_row(row: dict[str, Any], indent_class: str = "") -> str:
         cls = consumption_class(row["pct_consumed"])
         bar_pct = max(0.0, min(1.0, row["pct_consumed"] or 0)) * 100
-        dept_change = (row["department"] != prev_dept)
-        prev_dept = row["department"]
-        row_class = "dept-divider" if dept_change else ""
-        if row["is_bus_child"]:
-            row_class = (row_class + " bus-child").strip()
-            name_cell = (
-                f'<span class="ib-subrow-marker">&#8618;</span>'
-                f'<span class="ib-name-text">{html.escape(row["name"])}</span>'
-            )
-        else:
-            name_cell = f'<span class="ib-name-text">{html.escape(row["name"])}</span>'
-
-        # Partial badge on the actuals cell
-        row_badge = partial_badge(fy_meta) if fy_meta and fy_meta.get("status") == "Partial" else ""
-
-        # True_Available preferred per caveat #8
         ta = row.get("true_available")
         avail_cell = fmt_money(ta) if ta is not None else fmt_money(row.get("available"))
-
-        budget_cell = fmt_money(row["total_budget"]) if row.get("total_budget") is not None else '<span class="na-note">—</span>'
-        enc_cell = fmt_money(row["open_encumbrances"])
-
-        body_rows.append(f"""
-          <tr class="{row_class}" data-fc="{html.escape(row['funds_center'])}">
+        budget_cell = (
+            fmt_money(row["total_budget"]) if row.get("total_budget") is not None
+            else '<span class="na-note">—</span>'
+        )
+        fc_code = row["funds_center"]
+        fa_rows_for_fc = fa_lookup.get(fc_code, [])
+        has_fa = len(fa_rows_for_fc) > 0
+        # Expand toggle: only show if there are FA rows to reveal
+        toggle = (
+            f'<button type="button" class="ib-fa-toggle" data-fc="{html.escape(fc_code)}" '
+            f'aria-expanded="false" aria-label="Show {len(fa_rows_for_fc)} functional areas" '
+            f'title="Show functional area breakdown ({len(fa_rows_for_fc)})">'
+            f'<span class="ib-fa-toggle-icon">&#9656;</span></button>'
+            if has_fa else '<span class="ib-fa-toggle-spacer"></span>'
+        )
+        name_cell = (
+            f'{toggle}'
+            f'<span class="ib-subrow-marker">&#8618;</span>'
+            f'<span class="ib-name-text">{html.escape(row["name"])}</span>'
+        )
+        fc_row_html = f"""
+          <tr class="ib-fc-row {indent_class}" data-fc="{html.escape(fc_code)}">
             <td class="ib-name-cell">{name_cell}</td>
-            <td class="mono">{html.escape(row['funds_center'])}</td>
+            <td class="mono">{html.escape(fc_code)}</td>
             <td class="num">{budget_cell}</td>
             <td class="num">{fmt_money(row['actuals'])}{row_badge}</td>
-            <td class="num">{enc_cell}</td>
+            <td class="num">{fmt_money(row['open_encumbrances'])}</td>
             <td class="num">{avail_cell}</td>
             <td class="pct-cell">
               <div class="pct-track"><div class="pct-bar {cls}" style="width:{bar_pct:.1f}%"></div></div>
               <span class="pct-label {cls}">{fmt_pct(row['pct_consumed'])}</span>
             </td>
-          </tr>
-        """)
+          </tr>"""
+
+        if not has_fa:
+            return fc_row_html
+
+        # Emit a hidden detail row containing the FA breakdown.
+        # FI ledger total for this FC (sum of all FAs) — gives the user a
+        # check on how the FA mini-table relates to the FM actuals above.
+        fi_total = sum(f["actuals"] for f in fa_rows_for_fc)
+        fa_inner_rows = []
+        for fa in fa_rows_for_fc:
+            share = fa["actuals"] / fi_total if fi_total else 0
+            fa_inner_rows.append(f"""
+              <tr class="ib-fa-detail-row">
+                <td class="ib-fa-name">
+                  <span class="ib-fa-marker">&#10551;</span>
+                  <span class="ib-fa-text">{html.escape(fa.get('name') or fa['functional_area'])}</span>
+                  <span class="ib-fa-cat-tag">{html.escape(fa.get('category') or '')}</span>
+                </td>
+                <td class="mono">{html.escape(fa['functional_area'])}</td>
+                <td class="num">{fmt_money(fa['actuals'])}</td>
+                <td class="num ib-fa-share">{fmt_pct(share)}</td>
+              </tr>""")
+        detail_row = f"""
+          <tr class="ib-fa-detail" data-fc="{html.escape(fc_code)}" hidden>
+            <td colspan="7" class="ib-fa-detail-cell">
+              <div class="ib-fa-mini-wrap">
+                <div class="ib-fa-mini-header">
+                  Functional Area breakdown — <strong>FI Ledger 5xxx GL</strong>
+                  <span class="ib-fa-mini-meta">
+                    FI total {fmt_money(fi_total)} (vs FM Actuals {fmt_money(row['actuals'])} above —
+                    difference is clearing/accrual postings FI includes that FM excludes)
+                  </span>
+                </div>
+                <table class="ib-fa-mini-table">
+                  <thead>
+                    <tr>
+                      <th>Functional Area</th>
+                      <th>FA Code</th>
+                      <th class="num">FI Actuals</th>
+                      <th class="num">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {''.join(fa_inner_rows)}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>"""
+        return fc_row_html + detail_row
+
+    body_rows: list[str] = []
+    for div_name, offices in divisions.items():
+        # Division header spanning all 7 columns
+        body_rows.append(f"""
+          <tr class="ib-division-header">
+            <td colspan="7" class="ib-division-label">{html.escape(div_name)}</td>
+          </tr>""")
+
+        for office_name, fc_rows in offices.items():
+            # Office sub-header — label is clickable to drill into office detail
+            div_encoded    = html.escape(div_name)
+            office_encoded = html.escape(office_name)
+            body_rows.append(f"""
+          <tr class="ib-office-header">
+            <td colspan="7" class="ib-office-label">
+              <a href="#" class="ib-office-drill"
+                 data-division="{div_encoded}"
+                 data-office="{office_encoded}">{office_encoded}</a>
+            </td>
+          </tr>""")
+
+            # Check if this office has sub_category grouping (Transportation Depots/Bus Shops)
+            has_subcats = any(r.get("sub_category") for r in fc_rows)
+            if has_subcats:
+                # Group by sub_category, then emit a mini-sub-header per category
+                subcats: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
+                for r in fc_rows:
+                    sc = r.get("sub_category") or "Other"
+                    if sc not in subcats:
+                        subcats[sc] = []
+                    subcats[sc].append(r)
+                for sc_name, sc_rows in subcats.items():
+                    body_rows.append(f"""
+          <tr class="ib-subcategory-header">
+            <td colspan="7" class="ib-subcategory-label">{html.escape(sc_name)}s</td>
+          </tr>""")
+                    for r in sc_rows:
+                        body_rows.append(_fc_row(r, "ib-fc-indented"))
+            else:
+                for r in fc_rows:
+                    body_rows.append(_fc_row(r, "ib-fc-indented"))
 
     budget_note = (
         '<div class="ib-caveat-note">'
@@ -226,8 +349,8 @@ def render_budget_vs_actuals(
     <div class="ib-report">
       <header class="ib-report-header">
         <h2>FY{fy} Budget vs Actuals — All Funds Centers {badge}</h2>
-        <p class="ib-report-meta">Sorted by department · click any row to drill into Commitment Items.
-          Bus shops nested under Transportation.
+        <p class="ib-report-meta">Grouped by Division &rarr; Office &rarr; Funds Center.
+          Click any Funds Center row to drill into Commitment Items.
           Source: BEx FM Expense (actuals) + BEx Open Encumbrances + FMEDDW (FY26 budget).</p>
       </header>
       {budget_note}
@@ -241,6 +364,153 @@ def render_budget_vs_actuals(
             <th class="num">Actuals</th>
             <th class="num">Open Enc.</th>
             <th class="num">True Available</th>
+            <th>% Spent</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(body_rows)}
+        </tbody>
+      </table>
+    </div>
+    """
+
+
+# ─────────────────────────── Functional Area grouping ─────────────────────────
+
+def render_budget_vs_actuals_by_fa(
+    fy: int,
+    totals: dict[str, Any],
+    rows: list[dict[str, Any]],
+    fy_meta: dict[str, Any] | None = None,
+) -> str:
+    """Functional Area twin of render_budget_vs_actuals.
+
+    Two-level hierarchy: Category header -> Functional Area leaf row.
+    Open Encumbrances column is absent (bex_open_encumbrances has no
+    Functional_Area column) — caveat called out in the page note.
+    """
+    badge = partial_badge(fy_meta)
+    pct_class = consumption_class(totals.get("pct_consumed"))
+    row_badge = badge if fy_meta and fy_meta.get("status") == "Partial" else ""
+
+    budget_val = totals.get("total_budget")
+    budget_display = (
+        fmt_money(budget_val) if budget_val is not None
+        else '<span class="na-note">tracked at Fund level</span>'
+    )
+    av_val = totals.get("available")
+    avail_display = (
+        fmt_money(av_val) if av_val is not None
+        else '<span class="na-note">n/a</span>'
+    )
+
+    kpi_html = f"""
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Total Budget {badge}</div>
+        <div class="kpi-value">{budget_display}</div>
+        <div class="kpi-sub">FMEDDW (FY26 only)</div></div>
+      <div class="kpi"><div class="kpi-label">Actuals (FI)</div>
+        <div class="kpi-value">{fmt_money(totals.get('actuals'))}</div>
+        <div class="kpi-sub">FI Ledger 5xxx GL</div></div>
+      <div class="kpi"><div class="kpi-label">Available</div>
+        <div class="kpi-value">{avail_display}</div>
+        <div class="kpi-sub">Budget &minus; Actuals</div></div>
+      <div class="kpi {pct_class}"><div class="kpi-label">% Spent</div>
+        <div class="kpi-value">{fmt_pct(totals.get('pct_consumed'))}</div></div>
+      <div class="kpi"><div class="kpi-label">Functional Areas</div>
+        <div class="kpi-value">{totals.get('fa_count', 0)}</div></div>
+    </div>
+    """
+
+    from collections import OrderedDict
+    categories: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
+    for row in rows:
+        cat = row.get("category") or "Unknown"
+        categories.setdefault(cat, []).append(row)
+
+    def _fa_row(row: dict[str, Any]) -> str:
+        cls = consumption_class(row.get("pct_consumed"))
+        bar_pct = max(0.0, min(1.0, row.get("pct_consumed") or 0)) * 100
+        budget_cell = (
+            fmt_money(row["total_budget"]) if row.get("total_budget") is not None
+            else '<span class="na-note">&mdash;</span>'
+        )
+        avail_cell = (
+            fmt_money(row["available"]) if row.get("available") is not None
+            else '<span class="na-note">&mdash;</span>'
+        )
+        # Low-confidence rows get a faint asterisk tooltip
+        conf = row.get("confidence") or ""
+        conf_marker = ""
+        if conf == "low":
+            conf_marker = (
+                ' <span class="fa-confidence-marker" title="Low-confidence '
+                'classification — review pending">*</span>'
+            )
+        note_attr = (
+            f' title="{html.escape(row["note"])}"' if row.get("note") else ""
+        )
+        return f"""
+          <tr class="ib-fc-row ib-fc-indented"{note_attr}>
+            <td class="ib-name-cell">
+              <span class="ib-subrow-marker">&#8618;</span>
+              <span class="ib-name-text">{html.escape(row['name'] or row['functional_area'])}</span>
+              {conf_marker}
+            </td>
+            <td class="mono">{html.escape(row['functional_area'])}</td>
+            <td class="num">{budget_cell}</td>
+            <td class="num">{fmt_money(row['actuals'])}{row_badge}</td>
+            <td class="num">{avail_cell}</td>
+            <td class="pct-cell">
+              <div class="pct-track"><div class="pct-bar {cls}" style="width:{bar_pct:.1f}%"></div></div>
+              <span class="pct-label {cls}">{fmt_pct(row.get('pct_consumed'))}</span>
+            </td>
+          </tr>"""
+
+    body_rows: list[str] = []
+    for cat_name, fa_rows in categories.items():
+        cat_actuals = sum(r["actuals"] for r in fa_rows)
+        cat_budget = sum((r["total_budget"] or 0) for r in fa_rows if r.get("total_budget") is not None)
+        cat_budget_disp = fmt_money(cat_budget) if cat_budget else '<span class="na-note">&mdash;</span>'
+        body_rows.append(f"""
+          <tr class="ib-division-header">
+            <td colspan="2" class="ib-division-label">{html.escape(cat_name)} <span class="ib-cat-count">({len(fa_rows)})</span></td>
+            <td class="num ib-division-label">{cat_budget_disp}</td>
+            <td class="num ib-division-label">{fmt_money(cat_actuals)}</td>
+            <td colspan="2"></td>
+          </tr>""")
+        for r in fa_rows:
+            body_rows.append(_fa_row(r))
+
+    caveat_note = (
+        '<div class="ib-caveat-note">'
+        '<strong>Actuals source differs from the Org Chart grouping.</strong> '
+        'BEx FM Expense (the FM-module Actuals used by the Funds Center view) does not carry Functional_Area, '
+        'so Actuals here come from the FI ledger (<code>sceis_detail_transaction</code>, 5xxx GL). '
+        'FI includes clearing, accrual, and payroll postings that FM excludes, so totals here will NOT match '
+        'the Funds Center grouping. Budget is from FMEDDW (FY26 only). '
+        'Open Commitments are not shown — <code>bex_open_encumbrances</code> has no Functional_Area column; '
+        'switch to the Funds Center grouping for commitment detail.'
+        '</div>'
+    )
+
+    return f"""
+    <div class="ib-report">
+      <header class="ib-report-header">
+        <h2>FY{fy} Budget vs Actuals &mdash; By Functional Area {badge}</h2>
+        <p class="ib-report-meta">Grouped by Category &rarr; Functional Area.
+          Source: FI Ledger 5xxx GL (actuals) + FMEDDW (FY26 budget) + dim_functional_area for Category.</p>
+      </header>
+      {caveat_note}
+      {kpi_html}
+      <table class="ib-table ib-fc-table ib-fa-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Functional Area</th>
+            <th class="num">Budget <span class="th-note">(FY26 only)</span></th>
+            <th class="num">Actuals</th>
+            <th class="num">Available</th>
             <th>% Spent</th>
           </tr>
         </thead>
@@ -355,12 +625,146 @@ def _render_bex_expense_block(
         </thead>
         <tbody>{''.join(rows_html)}</tbody>
       </table>
-      <script>tippy('.tippy-ci', {{theme: 'light-border', placement: 'top', maxWidth: 320}});</script>
+      <script>if (window.tippy) tippy('.tippy-ci', {{theme: 'light-border', placement: 'top', maxWidth: 320}});</script>
     """
     return f"""
       <section class="ib-ci-block ib-ci-block-wide">
         <h3>{title}<span class="ib-ci-total">{fmt_money(total)}</span></h3>
         {body}
+      </section>
+    """
+
+
+def _render_vendors_paid_block(
+    funds_center: str,
+    summary: list[dict[str, Any]],
+    invoices: list[dict[str, Any]],
+) -> str:
+    """Two-panel vendor drill: aggregated top-25 vendors on top, collapsible
+    full FI document list below. Source: bex_fi_vendor_invoice (H630 FM-area
+    scope per data-quality caveat #5). Both panels share the same FY scope as
+    the parent FC view."""
+    total_paid = sum(v.get("total_paid", 0) for v in summary)
+    total_docs = sum(v.get("invoice_count", 0) for v in summary)
+
+    if not summary:
+        return f"""
+      <section class="ib-vendors-section">
+        <h3>Vendors Paid <span class="ib-ci-total">$0</span></h3>
+        <p class="ib-empty">No FI vendor invoices posted to this Funds Center for this FY.</p>
+      </section>
+        """
+
+    top_n = 25
+    shown = summary[:top_n]
+    overflow = summary[top_n:]
+    overflow_total = sum(v.get("total_paid", 0) for v in overflow)
+
+    summary_rows = []
+    for v in shown:
+        share = (v["total_paid"] / total_paid) if total_paid else 0
+        bar_pct = max(0.0, min(1.0, share)) * 100
+        vname = html.escape(v["vendor_name"] or "(Unattributed)")
+        vnum  = html.escape(v["vendor_number"] or "")
+        gl    = html.escape(v.get("top_gl") or "")
+        glname = html.escape(v.get("top_gl_name") or "")
+        gl_cell = f'<span class="mono tippy-ci" data-tippy-content="{glname}">{gl}</span>' if gl else '<span class="na-note">—</span>'
+        summary_rows.append(f"""
+          <tr>
+            <td>{vname}<span class="ib-vendor-num"> · {vnum}</span></td>
+            <td class="num">{fmt_int(v['invoice_count'])}</td>
+            <td class="num"><strong>{fmt_money(v['total_paid'])}</strong></td>
+            <td>{gl_cell}</td>
+            <td class="pct-cell">
+              <div class="pct-track"><div class="pct-bar consumed-on-track" style="width:{bar_pct:.1f}%"></div></div>
+              <span class="pct-label">{fmt_pct(share)}</span>
+            </td>
+          </tr>""")
+
+    overflow_row = ""
+    if overflow:
+        overflow_row = f"""
+          <tr class="ib-vendor-overflow">
+            <td colspan="2" class="ib-name-cell"><em>+ {len(overflow)} more vendors</em></td>
+            <td class="num">{fmt_money(overflow_total)}</td>
+            <td colspan="2" class="na-note">see full invoice list below</td>
+          </tr>"""
+
+    summary_table = f"""
+      <table class="ib-table ib-vendor-table">
+        <thead>
+          <tr>
+            <th>Vendor</th>
+            <th class="num"># Invoices</th>
+            <th class="num">Total Paid</th>
+            <th>Top GL</th>
+            <th>Share</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(summary_rows)}
+          {overflow_row}
+        </tbody>
+      </table>
+    """
+
+    # Full invoice list (collapsible)
+    invoice_rows = []
+    for inv in invoices:
+        district_cell = f'<span class="mono">{html.escape(inv["district_id"])}</span>' if inv.get("district_id") else '<span class="na-note">—</span>'
+        gl = html.escape(inv.get("gl_account") or "")
+        glname = html.escape(inv.get("gl_account_name") or "")
+        gl_cell = f'<span class="mono tippy-ci" data-tippy-content="{glname}">{gl}</span>' if gl else ""
+        amt = inv.get("amount_fm", 0)
+        invoice_rows.append(f"""
+          <tr>
+            <td>{html.escape(inv.get('posting_date') or '')}</td>
+            <td class="mono">{html.escape(inv.get('fi_doc_number') or '')}</td>
+            <td>{html.escape(inv.get('vendor_name') or '(Unattributed)')}</td>
+            <td>{html.escape(inv.get('doc_type_desc') or '')}</td>
+            <td>{gl_cell}</td>
+            <td>{district_cell}</td>
+            <td class="num">{fmt_money(amt)}</td>
+          </tr>""")
+
+    invoice_table = f"""
+      <table class="ib-table ib-enc-table">
+        <thead>
+          <tr>
+            <th>Posting Date</th>
+            <th>FI Doc #</th>
+            <th>Vendor</th>
+            <th>Doc Type</th>
+            <th>GL</th>
+            <th>District</th>
+            <th class="num">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(invoice_rows) if invoice_rows else '<tr><td colspan="7" class="ib-empty">No invoice rows.</td></tr>'}
+        </tbody>
+      </table>
+    """
+
+    invoice_note = ""
+    if len(invoices) >= 500:
+        invoice_note = '<p class="ib-methodology">Showing top 500 invoices by amount. Run a SQL query against <code>bex_fi_vendor_invoice</code> for the full list.</p>'
+
+    fc_safe = html.escape(funds_center)
+    return f"""
+      <section class="ib-vendors-section">
+        <h3>Vendors Paid <span class="ib-ci-total">{fmt_money(total_paid)} across {fmt_int(total_docs)} invoices</span></h3>
+        <p class="ib-report-meta">Source: BEx FI Vendor Invoice (H630 FM-area scope · DQ caveat #5).
+          Top {len(shown)} vendors by total paid shown below.</p>
+        {summary_table}
+        <h3 class="ib-collapsible-header" data-target="invoices-{fc_safe}">
+          Full invoice list ({fmt_int(len(invoices))} rows)
+          <span class="ib-collapsible-toggle">&#9658;</span>
+        </h3>
+        <div id="invoices-{fc_safe}" class="ib-collapsible-body" style="display:none">
+          {invoice_table}
+          {invoice_note}
+        </div>
       </section>
     """
 
@@ -412,6 +816,8 @@ def render_funds_center_detail(
     actuals_items: list[dict[str, Any]],
     bex_items: list[dict[str, Any]] | None = None,
     enc_lines: list[dict[str, Any]] | None = None,
+    vendor_summary: list[dict[str, Any]] | None = None,
+    vendor_invoices: list[dict[str, Any]] | None = None,
 ) -> str:
     if summary is None:
         return (
@@ -465,6 +871,9 @@ def render_funds_center_detail(
         bex_items or [],
     )
 
+    # Vendors Paid (BEx FI Vendor Invoice)
+    vendors_paid_block = _render_vendors_paid_block(funds_center, vendor_summary or [], vendor_invoices or [])
+
     # Encumbrance lines
     enc_block_inner = _render_encumbrance_lines_block(enc_lines or [])
     enc_block = f"""
@@ -501,6 +910,7 @@ def render_funds_center_detail(
       <div class="ib-ci-block-wide-wrap">
         {bex_block}
       </div>
+      {vendors_paid_block}
       {enc_block}
       <div class="ib-split-grid">
         {budget_block}
@@ -794,25 +1204,29 @@ def render_fi_expenditures(fy: int, totals: dict[str, Any], rows: list[dict[str,
     </div>
     """
 
-    body_rows = []
-    prev_dept = None
+    from collections import OrderedDict
+
     grand_total = totals.get("total") or 0
+
+    divisions: "OrderedDict[str, OrderedDict[str, list[dict[str, Any]]]]" = OrderedDict()
     for row in rows:
-        dept_change = (row["department"] != prev_dept)
-        prev_dept = row["department"]
-        row_class = "dept-divider" if dept_change else ""
-        if row["is_bus_child"]:
-            row_class = (row_class + " bus-child").strip()
-            name_cell = (
-                f'<span class="ib-subrow-marker">&#8618;</span>'
-                f'<span class="ib-name-text">{html.escape(row["name"])}</span>'
-            )
-        else:
-            name_cell = f'<span class="ib-name-text">{html.escape(row["name"])}</span>'
+        div = row.get("division") or "Unknown"
+        office = row.get("office") or row.get("name") or "—"
+        if div not in divisions:
+            divisions[div] = OrderedDict()
+        if office not in divisions[div]:
+            divisions[div][office] = []
+        divisions[div][office].append(row)
+
+    def _cc_row(row: dict[str, Any], indent_class: str = "ib-fc-indented") -> str:
         share = (row["amount"] / grand_total) if grand_total else None
         bar_pct = max(0.0, min(1.0, share or 0)) * 100
-        body_rows.append(f"""
-          <tr class="{row_class}" data-cc="{html.escape(row['cost_center'])}">
+        name_cell = (
+            f'<span class="ib-subrow-marker">&#8618;</span>'
+            f'<span class="ib-name-text">{html.escape(row["name"])}</span>'
+        )
+        return f"""
+          <tr class="ib-fc-row {indent_class}" data-cc="{html.escape(row['cost_center'])}">
             <td class="ib-name-cell">{name_cell}</td>
             <td class="mono">{html.escape(row['cost_center'])}</td>
             <td class="num">{fmt_money(row['amount'])}</td>
@@ -821,8 +1235,35 @@ def render_fi_expenditures(fy: int, totals: dict[str, Any], rows: list[dict[str,
               <div class="pct-track"><div class="pct-bar consumed-on-track" style="width:{bar_pct:.1f}%"></div></div>
               <span class="pct-label">{fmt_pct(share)}</span>
             </td>
-          </tr>
-        """)
+          </tr>"""
+
+    body_rows: list[str] = []
+    for div_name, offices in divisions.items():
+        body_rows.append(f"""
+          <tr class="ib-division-header">
+            <td colspan="5" class="ib-division-label">{html.escape(div_name)}</td>
+          </tr>""")
+        for office_name, cc_rows in offices.items():
+            body_rows.append(f"""
+          <tr class="ib-office-header">
+            <td colspan="5" class="ib-office-label">{html.escape(office_name)}</td>
+          </tr>""")
+            has_subcats = any(r.get("sub_category") for r in cc_rows)
+            if has_subcats:
+                subcats: "OrderedDict[str, list[dict[str, Any]]]" = OrderedDict()
+                for r in cc_rows:
+                    sc = r.get("sub_category") or "Other"
+                    subcats.setdefault(sc, []).append(r)
+                for sc_name, sc_rows in subcats.items():
+                    body_rows.append(f"""
+          <tr class="ib-subcategory-header">
+            <td colspan="5" class="ib-subcategory-label">{html.escape(sc_name)}s</td>
+          </tr>""")
+                    for r in sc_rows:
+                        body_rows.append(_cc_row(r))
+            else:
+                for r in cc_rows:
+                    body_rows.append(_cc_row(r))
 
     return f"""
     <div class="ib-report">
@@ -849,6 +1290,351 @@ def render_fi_expenditures(fy: int, totals: dict[str, Any], rows: list[dict[str,
         </tbody>
       </table>
     </div>
+    """
+
+
+# ─────────────────────────── Side-panel fragments ─────────────────────────────
+
+def render_panel_vendors(
+    funds_center: str,
+    fc_name: str,
+    fy: int,
+    vendor_summary: list[dict[str, Any]],
+    vendor_invoices: list[dict[str, Any]],
+) -> str:
+    """HTML fragment for the Vendors Paid side panel.
+
+    Deliberately not a full page — rendered into .ib-side-panel-body.
+    Reuses the _render_vendors_paid_block internals but wraps in a
+    labelled container so the panel header can stay outside.
+    """
+    title_label = f"{html.escape(fc_name)} ({html.escape(funds_center)}) — FY{fy}"
+    body = _render_vendors_paid_block(funds_center, vendor_summary, vendor_invoices)
+    return f"""
+    {_TIPPY_CDN}
+    <div class="ib-panel-fragment">
+      <p class="ib-panel-fc-label">{title_label}</p>
+      {body}
+    </div>
+    <script>
+    if (window.tippy) tippy('.tippy-ci', {{theme: 'light-border', placement: 'top', maxWidth: 320}});
+    document.querySelectorAll('.ib-collapsible-header').forEach(h => {{
+      h.addEventListener('click', () => {{
+        const target = document.getElementById(h.dataset.target);
+        if (target) {{
+          const open = target.style.display !== 'none';
+          target.style.display = open ? 'none' : '';
+          const tog = h.querySelector('.ib-collapsible-toggle');
+          if (tog) tog.textContent = open ? '\\u25BA' : '\\u25BC';
+        }}
+      }});
+    }});
+    </script>
+    """
+
+
+def render_panel_commitments(
+    funds_center: str,
+    fc_name: str,
+    fy: int,
+    enc_lines: list[dict[str, Any]],
+) -> str:
+    """HTML fragment for the Open Commitments side panel.
+
+    Includes PO Consumed % column (ABS(Invoiced)/Original).
+    Highlights over-invoiced rows with enc-over-invoiced class.
+    """
+    title_label = f"{html.escape(fc_name)} ({html.escape(funds_center)}) — FY{fy}"
+
+    if not enc_lines:
+        body = '<p class="ib-empty">No open commitments for this Funds Center.</p>'
+    else:
+        rows_html = []
+        for ln in enc_lines:
+            rb = ln["remaining_balance"]
+            neg_class = " enc-over-invoiced" if rb < 0 else ""
+            consumed_pct = ln.get("consumed_pct")
+            consumed_cell = fmt_pct(consumed_pct) if consumed_pct is not None else '<span class="na-note">—</span>'
+            status_cell = (
+                '<span class="enc-status-over">Over-invoiced</span>' if rb < 0
+                else '<span class="enc-status-open">Open</span>'
+            )
+            rows_html.append(f"""
+              <tr class="{neg_class.strip()}">
+                <td>{html.escape(ln['detail_type'] or '')}</td>
+                <td class="mono">{html.escape(ln['reference_doc_no'] or '')}</td>
+                <td>{html.escape(ln['document_date'] or '')}</td>
+                <td>{html.escape(ln['vendor_name'] or '')}</td>
+                <td class="num">{fmt_money(ln['original_amount'])}</td>
+                <td class="num">{fmt_money(ln['invoiced_amount'])}</td>
+                <td class="num">{fmt_money(rb)}</td>
+                <td class="num enc-consumed">{consumed_cell}</td>
+                <td>{status_cell}</td>
+              </tr>
+            """)
+
+        body = f"""
+          <table class="ib-table ib-enc-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Doc #</th>
+                <th>Date</th>
+                <th>Vendor</th>
+                <th class="num">Original</th>
+                <th class="num">Invoiced</th>
+                <th class="num">Remaining</th>
+                <th class="num">PO Consumed %</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>{''.join(rows_html)}</tbody>
+          </table>
+        """
+
+    total_open = sum(ln["remaining_balance"] for ln in enc_lines if ln["remaining_balance"] > 0)
+    total_over = sum(ln["remaining_balance"] for ln in enc_lines if ln["remaining_balance"] < 0)
+    summary_line = f"Open: {fmt_money(total_open)}"
+    if total_over < 0:
+        summary_line += f" &nbsp;·&nbsp; Over-invoiced: {fmt_money_plain(total_over)}"
+
+    return f"""
+    <div class="ib-panel-fragment">
+      <p class="ib-panel-fc-label">{title_label}</p>
+      <p class="ib-report-meta">{summary_line}</p>
+      {body}
+    </div>
+    """
+
+
+# ─────────────────────────── Office detail page ───────────────────────────────
+
+def render_office_detail(
+    division: str,
+    office: str,
+    fy: int,
+    totals: dict[str, Any],
+    fc_rows: list[dict[str, Any]],
+    fund_lookup: dict[str, list[dict]],     # funds_center → list of {fund_code, actuals, fund_name, restriction}
+    fy_meta: dict[str, Any] | None = None,
+) -> str:
+    """Office detail page: breadcrumb + KPI strip + FC table with ⓘ, Actuals,
+    and Encumbered clickable cells that open the right-side panel.
+
+    fund_lookup is keyed by Funds_Center; each value is the list of primary
+    funds (top 1-3 by actuals) with fund_name and restriction metadata already
+    resolved by the server route.
+    """
+    badge = partial_badge(fy_meta)
+    pct_class = consumption_class(totals.get("pct_consumed"))
+
+    budget_val = totals.get("total_budget")
+    budget_display = (
+        fmt_money(budget_val) if budget_val is not None
+        else '<span class="na-note">tracked at Fund level</span>'
+    )
+    ta_val = totals.get("true_available")
+    avail_display = fmt_money(ta_val) if ta_val is not None else "<span class='na-note'>—</span>"
+
+    enc_val = totals.get("open_encumbrances", 0)
+    remaining_val = (
+        (budget_val or 0) - (totals.get("actuals") or 0) - enc_val
+        if budget_val is not None else None
+    )
+    remaining_display = fmt_money(remaining_val) if remaining_val is not None else '<span class="na-note">—</span>'
+
+    pct_spent_val = totals.get("pct_consumed")
+
+    kpi_html = f"""
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Budget {badge}</div>
+        <div class="kpi-value">{budget_display}</div>
+        <div class="kpi-sub">FMEDDW (FY26 only)</div></div>
+      <div class="kpi"><div class="kpi-label">Encumbered</div>
+        <div class="kpi-value">{fmt_money(enc_val)}</div>
+        <div class="kpi-sub">Open POs &amp; Reservations</div></div>
+      <div class="kpi"><div class="kpi-label">Actuals (BEx) {badge}</div>
+        <div class="kpi-value">{fmt_money(totals.get('actuals'))}</div>
+        <div class="kpi-sub">FM Expense, negated</div></div>
+      <div class="kpi"><div class="kpi-label">Remaining</div>
+        <div class="kpi-value">{remaining_display}</div>
+        <div class="kpi-sub">Budget &minus; Actuals &minus; Enc.</div></div>
+      <div class="kpi {pct_class}"><div class="kpi-label">% Spent</div>
+        <div class="kpi-value">{fmt_pct(pct_spent_val)}</div></div>
+      <div class="kpi"><div class="kpi-label">Funds Centers</div>
+        <div class="kpi-value">{totals.get('fc_count', len(fc_rows))}</div></div>
+    </div>
+    """
+
+    body_rows: list[str] = []
+    for row in fc_rows:
+        fc = row["funds_center"]
+        fc_esc = html.escape(fc)
+        name = html.escape(row["name"])
+        cls = consumption_class(row.get("pct_consumed"))
+        bar_pct = max(0.0, min(1.0, row.get("pct_consumed") or 0)) * 100
+
+        budget_cell = (
+            fmt_money(row["total_budget"]) if row.get("total_budget") is not None
+            else '<span class="na-note">—</span>'
+        )
+        enc_cell_val = row.get("open_encumbrances", 0)
+        actuals_val  = row.get("actuals", 0)
+        ta = row.get("true_available")
+        remaining_cell = fmt_money(ta) if ta is not None else '<span class="na-note">—</span>'
+
+        # Build ⓘ tooltip content (server-side)
+        funds_list = fund_lookup.get(fc, [])
+        tip_lines = [
+            f"<strong>{html.escape(row['name'])}</strong>",
+            f"Office: {html.escape(row['office'])}",
+        ]
+        if row.get("sub_division"):
+            tip_lines.append(f"Sub-division: {html.escape(row['sub_division'])}")
+        if funds_list:
+            tip_lines.append("Primary Fund(s):")
+            for f in funds_list:
+                fname = html.escape(f.get("fund_name") or f.get("fund_code") or "—")
+                famt  = fmt_money_plain(f.get("actuals", 0))
+                ftype = html.escape(f.get("restriction_type") or "")
+                ftext = html.escape(f.get("restriction_text") or "")
+                tip_lines.append(f"&nbsp;&nbsp;<em>{fname}</em> ({famt})")
+                if ftype:
+                    tip_lines.append(f"&nbsp;&nbsp;&nbsp;&nbsp;[{ftype}] {ftext}")
+        else:
+            tip_lines.append("No fund actuals data for this FY.")
+
+        tip_html = html.escape("<br>".join(tip_lines))
+        # Tippy expects the content as the data attribute; we'll use allowHTML: true
+        tip_content = "|".join(tip_lines)   # pipe-delimited; JS will split and build HTML
+
+        info_btn = (
+            f'<button class="ib-info-btn" aria-label="Cost center information" '
+            f'data-tippy-content="{html.escape(tip_content)}" '
+            f'data-tippy-allow-html="true"><span class="ib-info-glyph">i</span></button>'
+        )
+
+        fy_val = row.get("fy_status")
+        row_badge = partial_badge({"status": fy_val, "as_of_date": row.get("as_of_date")}) if fy_val == "Partial" else ""
+
+        body_rows.append(f"""
+          <tr class="ib-fc-row ib-fc-indented" data-fc="{fc_esc}">
+            <td class="ib-info-cell">{info_btn}</td>
+            <td class="ib-name-cell">
+              <span class="ib-subrow-marker">&#8618;</span>
+              <span class="ib-name-text">{name}</span>
+            </td>
+            <td class="mono">{fc_esc}</td>
+            <td class="num">{budget_cell}</td>
+            <td class="num ib-clickable-cell" data-fc="{fc_esc}" data-panel="commitments"
+                title="Click to view open commitments">{fmt_money(enc_cell_val)}</td>
+            <td class="num ib-clickable-cell" data-fc="{fc_esc}" data-panel="vendors"
+                title="Click to view vendors paid">{fmt_money(actuals_val)}{row_badge}</td>
+            <td class="num">{remaining_cell}</td>
+            <td class="pct-cell">
+              <div class="pct-track"><div class="pct-bar {cls}" style="width:{bar_pct:.1f}%"></div></div>
+              <span class="pct-label {cls}">{fmt_pct(row.get('pct_consumed'))}</span>
+            </td>
+          </tr>
+        """)
+
+    div_esc    = html.escape(division)
+    office_esc = html.escape(office)
+
+    partial_note = (
+        '<div class="ib-caveat-note">FY26 data is partial year through the most recent BEx extract date. '
+        'Budget column is from FMEDDW and available for FY26 only. '
+        'Actuals and Encumbrances are from BEx FM Expense and BEx Open Encumbrances.</div>'
+        if fy_meta and fy_meta.get("status") == "Partial" else
+        '<div class="ib-caveat-note">Budget column is from FMEDDW (FY26 only). '
+        'Actuals and Encumbrances are from BEx FM Expense and BEx Open Encumbrances.</div>'
+    )
+
+    return f"""
+    {_TIPPY_CDN}
+    <div class="ib-report">
+      <header class="ib-report-header">
+        <nav class="ib-breadcrumb">
+          <a href="#" class="ib-breadcrumb-back" id="office-back-link">&#8592; All Funds Centers</a>
+          <span class="ib-breadcrumb-sep">&rsaquo;</span>
+          <span class="ib-breadcrumb-division">{div_esc}</span>
+          <span class="ib-breadcrumb-sep">&rsaquo;</span>
+          <strong class="ib-breadcrumb-office">{office_esc}</strong>
+          <span class="ib-breadcrumb-fy">FY{fy} {badge}</span>
+        </nav>
+        <p class="ib-report-meta">
+          Click <strong>Actuals</strong> to see vendors paid &nbsp;·&nbsp;
+          Click <strong>Encumbered</strong> to see open commitments &nbsp;·&nbsp;
+          Click <strong>&#9432;</strong> for fund restriction info.
+        </p>
+      </header>
+      {partial_note}
+      {kpi_html}
+      <table class="ib-table ib-fc-table ib-office-fc-table">
+        <thead>
+          <tr>
+            <th class="ib-info-col"></th>
+            <th>Funds Center Name</th>
+            <th>FC Code</th>
+            <th class="num">Budget <span class="th-note">(FY26 only)</span></th>
+            <th class="num">Encumbered <span class="th-note">(clickable)</span></th>
+            <th class="num">Actuals <span class="th-note">(clickable)</span></th>
+            <th class="num">Remaining</th>
+            <th>% Spent</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(body_rows) if body_rows else
+           '<tr><td colspan="8" class="ib-empty">No Funds Centers found for this office in FY' + str(fy) + '.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+    <script>
+    // Back link
+    const backLink = document.getElementById('office-back-link');
+    if (backLink) {{
+      backLink.addEventListener('click', (e) => {{
+        e.preventDefault();
+        if (typeof loadAgency === 'function') loadAgency({fy});
+      }});
+    }}
+
+    // ⓘ tooltips — pipe-delimited content rendered as HTML lines
+    document.querySelectorAll('.ib-info-btn').forEach(btn => {{
+      const raw = btn.dataset.tippyContent || '';
+      const lines = raw.split('|');
+      const htmlContent = lines.join('<br>');
+      btn.setAttribute('data-tippy-content', htmlContent);
+    }});
+    if (window.tippy) {{
+      tippy('.ib-info-btn', {{
+        theme:     'light-border',
+        placement: 'right',
+        allowHTML: true,
+        maxWidth:  360,
+        interactive: false,
+      }});
+    }}
+
+    // Clickable cell → open side panel
+    document.querySelectorAll('.ib-clickable-cell[data-panel]').forEach(td => {{
+      td.addEventListener('click', (e) => {{
+        e.stopPropagation();
+        const fc    = td.dataset.fc;
+        const panel = td.dataset.panel;
+        if (typeof openSidePanel === 'function') openSidePanel(fc, panel, {fy});
+      }});
+    }});
+
+    // Row click → still navigates to legacy FC detail (unchanged per spec)
+    document.querySelectorAll('.ib-office-fc-table tbody tr[data-fc]').forEach(tr => {{
+      tr.addEventListener('click', (e) => {{
+        // Don't fire row click if clicking a cell with its own handler
+        if (e.target.closest('.ib-clickable-cell, .ib-info-btn')) return;
+        if (typeof loadFundsCenter === 'function') loadFundsCenter(tr.dataset.fc, {fy});
+      }});
+    }});
+    </script>
     """
 
 

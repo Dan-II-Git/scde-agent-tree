@@ -541,3 +541,43 @@ SELECT
 FROM sceis_fmeddw
 WHERE Is_Rollup = FALSE
 GROUP BY Funds_Center, Fiscal_Year;
+
+-- ============================================================
+-- Org-chart and classifier dimensions (loaded from JSON by scripts)
+-- ============================================================
+
+-- dim_cost_center_office: maps every SAP cost center (H630*) to its
+-- SCDE org-chart division and office.  Loaded by scripts/load_dim_cost_center_office.py
+-- (or equivalent) from db/dim_cost_center_office.json.
+-- 117 explicit entries + prefix rules for H630JG* / H630BU* covering all
+-- 225 active cost centers.  Join on Cost_Center = Funds_Cost_Center /
+-- Funds_Center in bex_fm_expense / vw_budget_vs_actuals_by_funds_center.
+CREATE TABLE IF NOT EXISTS dim_cost_center_office (
+    Cost_Center      VARCHAR PRIMARY KEY,
+    Cost_Center_Name VARCHAR,
+    Division         VARCHAR NOT NULL,
+    Sub_Division     VARCHAR,
+    Office           VARCHAR NOT NULL,
+    Sub_Category     VARCHAR,
+    Confidence       VARCHAR NOT NULL,  -- high / medium / low
+    Note             VARCHAR
+);
+
+-- dim_functional_area: maps every SAP Functional Area code appearing in
+-- any H630 transaction to a category (State Aid to Districts, State
+-- Appropriation Activity, Federal Grant / Pass-Through, etc.).
+-- 696 codes union'd across sceis_agency_master, sceis_detail_transaction,
+-- sceis_fmeddw, bex_fi_vendor_invoice — 100% join coverage validated
+-- 2026-05-14.  Loaded from db/dim_functional_area.json by
+-- scripts/load_dim_functional_area.py.
+-- NOTE: 6 Z-suffix rollup codes (H630_1ASZ, _660Z, _633Z, _573Z, _624Z,
+-- _639Z) carry real FI-ledger postings (~$16.5M FY26) despite being FM
+-- hierarchy nodes — exclude when aggregating with child codes (see Note).
+CREATE TABLE IF NOT EXISTS dim_functional_area (
+    Functional_Area  VARCHAR PRIMARY KEY,
+    Name             VARCHAR,
+    Category         VARCHAR NOT NULL,
+    Confidence       VARCHAR NOT NULL,  -- high / medium / low
+    FY26_5xxx_Spend  DOUBLE,
+    Note             VARCHAR
+);

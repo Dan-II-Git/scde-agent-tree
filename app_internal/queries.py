@@ -1,4 +1,6 @@
 """Read helpers for app_internal — three parallel views of agency money:
+   Plus the new Office-grain drill-down (get_office_detail, get_office_fc_rows,
+   get_fc_primary_funds) that backs /api/report/office.
 
 - FM Budget vs Actuals by Fund (vw_budget_vs_actuals_by_fund).
   Grain: Fund x FY. Authoritative for budget (BEx Budget v Actual).
@@ -204,46 +206,6 @@ def get_encumbrances_by_funds_center(fy: int) -> list[dict[str, Any]]:
     ]
 
 
-def get_encumbrance_lines(funds_center: str, fy: int) -> list[dict[str, Any]]:
-    """PO/Reservation detail rows for a single Funds Center.
-
-    Returns one row per commitment document line, with negative
-    Remaining_Balance preserved (not floored) so the UI can display
-    over-invoiced POs explicitly.
-    """
-    rows = fetchall(
-        """
-        SELECT
-            Detail_Type,
-            Reference_Doc_No,
-            Document_Date,
-            Vendor_Number,
-            Vendor_Name,
-            Original_Amount,
-            Invoiced_Amount,
-            Remaining_Balance
-        FROM bex_open_encumbrances
-        WHERE Funds_Center = ? AND Fiscal_Year = ?
-          AND Remaining_Balance != 0
-        ORDER BY Remaining_Balance DESC
-        """,
-        [funds_center, fy],
-    )
-    return [
-        {
-            "detail_type":      dt,
-            "reference_doc_no": ref,
-            "document_date":    doc_date.isoformat() if doc_date else None,
-            "vendor_number":    vnum,
-            "vendor_name":      vname,
-            "original_amount":  float(orig or 0),
-            "invoiced_amount":  float(inv or 0),
-            "remaining_balance": float(rem or 0),
-        }
-        for dt, ref, doc_date, vnum, vname, orig, inv, rem in rows
-    ]
-
-
 # ─────────────────────────────────────────────────────────────────────
 # FM Expense drill-down — CI / GL / Vendor / Quarter breakdown
 # ─────────────────────────────────────────────────────────────────────
@@ -357,6 +319,63 @@ def get_vendor_invoice_detail(funds_center: str, fy: int) -> list[dict[str, Any]
     ]
 
 
+def get_vendor_payments_summary(funds_center: str, fy: int) -> list[dict[str, Any]]:
+    """Aggregated FI vendor invoice activity for one Funds Center, FY.
+
+    One row per vendor: invoice count, total paid, top GL account by $.
+    Sorted by total paid desc. Joins to sceis_fi_payments only for the
+    vendor-name fallback when bex carries a number-only vendor identifier.
+    """
+    rows = fetchall(
+        """
+        WITH lines AS (
+          SELECT
+            COALESCE(v.Vendor_Number, 'UNKNOWN')           AS Vendor_Number,
+            COALESCE(v.Vendor_Name, p.Vendor_Name, '(Unattributed)') AS Vendor_Name,
+            v.GL_Account,
+            v.GL_Account_Name,
+            v.Amount_FM,
+            v.FI_Doc_Number
+          FROM bex_fi_vendor_invoice v
+          LEFT JOIN sceis_fi_payments p
+                 ON p.Doc_Number = v.FI_Doc_Number
+          WHERE v.Funds_Center = ? AND v.Fiscal_Year = ?
+        ),
+        gl_rank AS (
+          SELECT Vendor_Number, GL_Account, GL_Account_Name,
+                 SUM(Amount_FM) AS gl_amt,
+                 ROW_NUMBER() OVER (PARTITION BY Vendor_Number ORDER BY SUM(Amount_FM) DESC) AS rn
+          FROM lines
+          GROUP BY 1, 2, 3
+        )
+        SELECT
+          l.Vendor_Number,
+          l.Vendor_Name,
+          COUNT(DISTINCT l.FI_Doc_Number) AS invoice_count,
+          SUM(l.Amount_FM)                AS total_paid,
+          MAX(CASE WHEN g.rn = 1 THEN g.GL_Account     END) AS top_gl,
+          MAX(CASE WHEN g.rn = 1 THEN g.GL_Account_Name END) AS top_gl_name
+        FROM lines l
+        LEFT JOIN gl_rank g
+               ON g.Vendor_Number = l.Vendor_Number AND g.rn = 1
+        GROUP BY 1, 2
+        ORDER BY total_paid DESC
+        """,
+        [funds_center, fy],
+    )
+    return [
+        {
+            "vendor_number": vnum,
+            "vendor_name":   vname,
+            "invoice_count": int(cnt or 0),
+            "total_paid":    float(amt or 0),
+            "top_gl":        gl,
+            "top_gl_name":   glname,
+        }
+        for vnum, vname, cnt, amt, gl, glname in rows
+    ]
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Funds Center view (existing — extended for BEx era)
 # ─────────────────────────────────────────────────────────────────────
@@ -378,11 +397,18 @@ def list_funds_centers(fy: int) -> list[dict[str, Any]]:
 
 def get_budget_vs_actuals(fy: int) -> list[dict[str, Any]]:
     """All Funds Centers for the FY with actuals/encumbrances/available/pct,
-    enriched with the agency-master Name and a derived Department.
+    enriched with org-chart grouping from dim_cost_center_office.
 
-    Department rule: cost centers whose code starts with 'H630BU' roll up to
-    a 'TRANSPORTATION' department. Every other cost center has
-    Department = Name.
+    Returns one dict per Funds Center with the following org-chart fields:
+      - division   : top-level division (e.g. "College, Career, & Military Readiness")
+      - sub_division: only populated for CCMR rows ("Teaching & Learning" /
+                      "Talent & Continuous Improvement"); NULL elsewhere
+      - office     : leaf office (e.g. "Career Readiness", "Transportation")
+      - sub_category: "Depot" / "Bus Shop" for H630JG* / H630BU* rows; NULL elsewhere
+      - department : alias for office — kept for any callers that still reference it
+
+    Rows are ordered Division → Office → Funds_Center for the three-level
+    hierarchy rendered by render_budget_vs_actuals.
 
     Uses BEx-sourced Actuals (both FY25 and FY26). Budget (Total_Budget) is
     available for FY26 (from FMEDDW) and NULL for FY25. Open_Encumbrances
@@ -392,11 +418,11 @@ def get_budget_vs_actuals(fy: int) -> list[dict[str, Any]]:
         """
         SELECT
             v.Funds_Center,
-            COALESCE(am.Name, v.Funds_Center) AS Name,
-            CASE
-                WHEN v.Funds_Center LIKE 'H630BU%' THEN 'Transportation'
-                ELSE COALESCE(am.Name, v.Funds_Center)
-            END AS Department,
+            COALESCE(d.Cost_Center_Name, am.Name, v.Funds_Center) AS Name,
+            COALESCE(d.Division, 'Unknown')                        AS Division,
+            d.Sub_Division,
+            COALESCE(d.Office, 'Unknown')                          AS Office,
+            d.Sub_Category,
             v.Total_Budget,
             v.Estimated_Revenue,
             v.Actuals,
@@ -407,21 +433,24 @@ def get_budget_vs_actuals(fy: int) -> list[dict[str, Any]]:
             v.FY_Status,
             v.As_Of_Date
         FROM vw_budget_vs_actuals_by_funds_center v
-        LEFT JOIN sceis_agency_master am ON am.Cost_Center = v.Funds_Center
+        LEFT JOIN dim_cost_center_office d  ON d.Cost_Center  = v.Funds_Center
+        LEFT JOIN sceis_agency_master    am ON am.Cost_Center = v.Funds_Center
         WHERE v.Fiscal_Year = ?
-        ORDER BY Department, v.Funds_Center
+        ORDER BY Division, Office, v.Funds_Center
         """,
         [fy],
     )
     out = []
-    for (fc, name, dept, tb, er, ac, av, pc,
-         enc, true_avail, fy_status, as_of) in rows:
-        is_bus_child = fc.startswith("H630BUS")
+    for (fc, name, division, sub_division, office, sub_category,
+         tb, er, ac, av, pc, enc, true_avail, fy_status, as_of) in rows:
         out.append({
             "funds_center":       fc,
             "name":               name,
-            "department":         dept,
-            "is_bus_child":       is_bus_child,
+            "division":           division,
+            "sub_division":       sub_division,
+            "office":             office,
+            "sub_category":       sub_category,
+            "department":         office,   # legacy alias
             "total_budget":       float(tb) if tb is not None else None,
             "estimated_revenue":  float(er or 0),
             "actuals":            float(ac or 0),
@@ -431,6 +460,46 @@ def get_budget_vs_actuals(fy: int) -> list[dict[str, Any]]:
             "true_available":     float(true_avail) if true_avail is not None else None,
             "fy_status":          fy_status,
             "as_of_date":         as_of.isoformat() if as_of else None,
+        })
+    return out
+
+
+def get_fc_fa_breakdown(fy: int) -> dict[str, list[dict[str, Any]]]:
+    """Return Funds_Center -> list of Functional_Area dicts for FY.
+
+    One pass over sceis_detail_transaction (the only source with both
+    Funds_Cost_Center AND Functional_Area), joined to dim_functional_area
+    for Category + Name. Used by render_budget_vs_actuals to inject FA
+    sub-rows under each FC row.
+
+    Caveat: FI ledger 5xxx GL is the source. These rows will NOT sum to
+    the FC parent row's BEx FM Actuals due to clearing/accrual postings
+    FI includes that FM excludes.
+    """
+    rows = fetchall(
+        """
+        SELECT
+          d.Funds_Cost_Center                     AS Funds_Center,
+          d.Functional_Area,
+          COALESCE(f.Name, d.Functional_Area)     AS Name,
+          COALESCE(f.Category, 'Unknown')         AS Category,
+          SUM(d.Debit_Credit_Amount)              AS Actuals
+        FROM sceis_detail_transaction d
+        LEFT JOIN dim_functional_area f ON f.Functional_Area = d.Functional_Area
+        WHERE d.Fiscal_Year = ? AND d.GL_Account LIKE '5%'
+        GROUP BY 1, 2, 3, 4
+        HAVING SUM(d.Debit_Credit_Amount) != 0
+        ORDER BY 1, 5 DESC
+        """,
+        [fy],
+    )
+    out: dict[str, list[dict[str, Any]]] = {}
+    for fc, fa, name, cat, amt in rows:
+        out.setdefault(fc, []).append({
+            "functional_area": fa,
+            "name":            name,
+            "category":        cat,
+            "actuals":         float(amt or 0),
         })
     return out
 
@@ -580,6 +649,134 @@ def get_actuals_by_commitment_item(funds_center: str, fy: int) -> list[dict[str,
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Functional Area grouping (parallel to Funds Center)
+# ─────────────────────────────────────────────────────────────────────
+# IMPORTANT: actuals here are sourced from sceis_detail_transaction (FI
+# ledger, 5xxx GL), NOT bex_fm_expense — only the FI ledger carries
+# Functional_Area on every row. Consequence: these actuals will NOT
+# reconcile to the Funds Center view's FM Actuals (BEx FM Expense),
+# because FI includes clearing/accrual/payroll postings that FM excludes,
+# and FM negates the sign whereas FI is signed natively. The caveat note
+# in render_budget_vs_actuals_by_fa explains this to the user.
+#
+# Budget is from sceis_fmeddw (FY26 only) — same source as the FC view.
+# Open Encumbrances are NOT shown: bex_open_encumbrances has no
+# Functional_Area column. Users who need commitments must pivot back
+# to the Funds Center grouping.
+
+def get_budget_vs_actuals_by_functional_area(fy: int) -> list[dict[str, Any]]:
+    """Functional Area twin of get_budget_vs_actuals.
+
+    Aggregates FI ledger 5xxx actuals and FMEDDW budget by Functional_Area,
+    enriched with Category + Name + Confidence from dim_functional_area.
+    Returns rows ordered Category -> Actuals desc so the rendered table
+    groups by Category naturally.
+    """
+    rows = fetchall(
+        """
+        WITH fi_actuals AS (
+          SELECT Functional_Area, SUM(Debit_Credit_Amount) AS Actuals
+          FROM sceis_detail_transaction
+          WHERE Fiscal_Year = ? AND GL_Account LIKE '5%'
+          GROUP BY 1
+        ),
+        fmeddw_budget AS (
+          SELECT
+            Functional_Area,
+            SUM(CASE WHEN Budget_Type IN (
+                'ORIGINAL APPROPRIATIONS','SUPPLEMENTAL APPROPRIATIONS','BUDGET ADJUSTMENTS',
+                'Carryforward Gen Fund','Carryforward Special Items','2% APPROPRIATION BUDGET',
+                'TRANSFER OF APPROPRIATIONS','TRANSFER OF SALARY/FRINGE',
+                'INTER-AGENCY TRANSFER','ALLOCATIONS-TRSFRS FR EMPL BEN'
+              ) THEN Amount ELSE 0 END) AS Total_Budget
+          FROM sceis_fmeddw
+          WHERE Fiscal_Year = ? AND Is_Rollup = FALSE
+          GROUP BY 1
+        ),
+        all_fa AS (
+          SELECT Functional_Area FROM fi_actuals
+          UNION
+          SELECT Functional_Area FROM fmeddw_budget
+        )
+        SELECT
+          f.Functional_Area,
+          COALESCE(d.Name, f.Functional_Area)        AS Name,
+          COALESCE(d.Category, 'Unknown')            AS Category,
+          d.Confidence,
+          d.Note,
+          fb.Total_Budget,
+          COALESCE(ba.Actuals, 0)                    AS Actuals,
+          CASE WHEN fb.Total_Budget IS NOT NULL
+               THEN fb.Total_Budget - COALESCE(ba.Actuals, 0)
+               ELSE NULL END                         AS Available,
+          CASE WHEN fb.Total_Budget > 0
+               THEN COALESCE(ba.Actuals, 0) / fb.Total_Budget
+               ELSE NULL END                         AS Pct_Consumed
+        FROM all_fa f
+        LEFT JOIN fi_actuals      ba ON ba.Functional_Area = f.Functional_Area
+        LEFT JOIN fmeddw_budget   fb ON fb.Functional_Area = f.Functional_Area
+        LEFT JOIN dim_functional_area d ON d.Functional_Area = f.Functional_Area
+        WHERE COALESCE(ba.Actuals, 0) != 0 OR fb.Total_Budget IS NOT NULL
+        ORDER BY Category, Actuals DESC NULLS LAST
+        """,
+        [fy, fy],
+    )
+    out = []
+    for fa, name, cat, conf, note, tb, ac, av, pc in rows:
+        out.append({
+            "functional_area": fa,
+            "name":            name,
+            "category":        cat,
+            "confidence":      conf,
+            "note":            note,
+            "total_budget":    float(tb) if tb is not None else None,
+            "actuals":         float(ac or 0),
+            "available":       float(av) if av is not None else None,
+            "pct_consumed":    float(pc) if pc is not None else None,
+        })
+    return out
+
+
+def get_fa_agency_totals(fy: int) -> dict[str, Any]:
+    """Top-line KPIs for the FA grouping. Actuals from FI ledger 5xxx."""
+    row = fetchone(
+        """
+        WITH agg AS (
+          SELECT
+            SUM(CASE WHEN Budget_Type IN (
+                'ORIGINAL APPROPRIATIONS','SUPPLEMENTAL APPROPRIATIONS','BUDGET ADJUSTMENTS',
+                'Carryforward Gen Fund','Carryforward Special Items','2% APPROPRIATION BUDGET',
+                'TRANSFER OF APPROPRIATIONS','TRANSFER OF SALARY/FRINGE',
+                'INTER-AGENCY TRANSFER','ALLOCATIONS-TRSFRS FR EMPL BEN'
+              ) THEN Amount ELSE 0 END) AS Total_Budget
+          FROM sceis_fmeddw
+          WHERE Fiscal_Year = ? AND Is_Rollup = FALSE
+        ),
+        ba AS (
+          SELECT SUM(Debit_Credit_Amount) AS Actuals,
+                 COUNT(DISTINCT Functional_Area) AS fa_count
+          FROM sceis_detail_transaction
+          WHERE Fiscal_Year = ? AND GL_Account LIKE '5%'
+        )
+        SELECT agg.Total_Budget, ba.Actuals, ba.fa_count FROM agg, ba
+        """,
+        [fy, fy],
+    )
+    if row is None:
+        return {}
+    tb, ac, fa_count = row
+    ac = float(ac or 0)
+    tb_f = float(tb) if tb is not None else None
+    return {
+        "total_budget":  tb_f,
+        "actuals":       ac,
+        "available":     (tb_f - ac) if tb_f is not None else None,
+        "pct_consumed":  (ac / tb_f) if tb_f and tb_f > 0 else None,
+        "fa_count":      int(fa_count or 0),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
 # FI-ledger view: expenditures by Cost Center x handbook category
 # ─────────────────────────────────────────────────────────────────────
 
@@ -608,9 +805,12 @@ def list_fi_fiscal_years() -> list[int]:
 
 def get_fi_expenditures_by_cost_center(fy: int) -> list[dict[str, Any]]:
     """Top-level FI ledger expenditures (5xxx GL only) per Cost Center,
-    enriched with friendly Name from agency master and the same
-    Department-grouping rule (BUS shops under Transportation) used by
-    the FM-side view."""
+    enriched with org-chart grouping from dim_cost_center_office.
+
+    Returns one dict per Cost Center with the same org-chart fields as
+    get_budget_vs_actuals (division, sub_division, office, sub_category,
+    department) so the FI Ledger view uses the same grouping logic.
+    """
     rows = fetchall(
         """
         WITH spend AS (
@@ -624,26 +824,31 @@ def get_fi_expenditures_by_cost_center(fy: int) -> list[dict[str, Any]]:
         )
         SELECT
             s.Funds_Cost_Center,
-            COALESCE(am.Name, s.Funds_Cost_Center) AS Name,
-            CASE
-                WHEN s.Funds_Cost_Center LIKE 'H630BU%' THEN 'Transportation'
-                ELSE COALESCE(am.Name, s.Funds_Cost_Center)
-            END AS Department,
+            COALESCE(d.Cost_Center_Name, am.Name, s.Funds_Cost_Center) AS Name,
+            COALESCE(d.Division, 'Unknown')                             AS Division,
+            d.Sub_Division,
+            COALESCE(d.Office, 'Unknown')                               AS Office,
+            d.Sub_Category,
             s.amt,
             s.row_count
         FROM spend s
-        LEFT JOIN sceis_agency_master am ON am.Cost_Center = s.Funds_Cost_Center
+        LEFT JOIN dim_cost_center_office d  ON d.Cost_Center  = s.Funds_Cost_Center
+        LEFT JOIN sceis_agency_master    am ON am.Cost_Center = s.Funds_Cost_Center
         WHERE s.amt != 0
-        ORDER BY Department, s.Funds_Cost_Center
+        ORDER BY Division, Office, s.Funds_Cost_Center
         """,
         [fy],
     )
     out = []
-    for fc, name, dept, amt, n in rows:
+    for fc, name, division, sub_division, office, sub_category, amt, n in rows:
         out.append({
             "cost_center":  fc,
             "name":         name,
-            "department":   dept,
+            "division":     division,
+            "sub_division": sub_division,
+            "office":       office,
+            "sub_category": sub_category,
+            "department":   office,   # legacy alias
             "is_bus_child": fc.startswith("H630BUS"),
             "amount":       float(amt or 0),
             "row_count":    int(n or 0),
@@ -689,6 +894,171 @@ def get_fi_agency_totals(fy: int) -> dict[str, Any]:
         "unmapped":          float(unmapped or 0),
         "mapped_pct":        (float(mapped or 0) / float(total)) if total else None,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Office-grain drill-down (new — backs /api/report/office)
+# ─────────────────────────────────────────────────────────────────────
+
+def get_office_fc_rows(division: str, office: str, fy: int) -> list[dict[str, Any]]:
+    """All Funds Centers in a given Division/Office for the given FY.
+
+    Returns one dict per Funds Center, same field set as get_budget_vs_actuals
+    rows but scoped to a single office.  Ordered by Funds_Center for stability.
+    """
+    rows = fetchall(
+        """
+        SELECT
+            v.Funds_Center,
+            COALESCE(d.Cost_Center_Name, am.Name, v.Funds_Center) AS Name,
+            COALESCE(d.Division, 'Unknown')                        AS Division,
+            COALESCE(d.Office, 'Unknown')                          AS Office,
+            d.Sub_Division,
+            d.Sub_Category,
+            v.Total_Budget,
+            v.Actuals,
+            v.Open_Encumbrances,
+            v.True_Available,
+            v.Pct_Consumed,
+            v.FY_Status,
+            v.As_Of_Date
+        FROM vw_budget_vs_actuals_by_funds_center v
+        LEFT JOIN dim_cost_center_office d  ON d.Cost_Center  = v.Funds_Center
+        LEFT JOIN sceis_agency_master    am ON am.Cost_Center = v.Funds_Center
+        WHERE v.Fiscal_Year = ?
+          AND COALESCE(d.Division, 'Unknown') = ?
+          AND COALESCE(d.Office,   'Unknown') = ?
+        ORDER BY v.Funds_Center
+        """,
+        [fy, division, office],
+    )
+    out = []
+    for (fc, name, div, off, sub_div, sub_cat,
+         tb, ac, enc, true_avail, pc, fy_status, as_of) in rows:
+        out.append({
+            "funds_center":      fc,
+            "name":              name,
+            "division":          div,
+            "office":            off,
+            "sub_division":      sub_div,
+            "sub_category":      sub_cat,
+            "total_budget":      float(tb) if tb is not None else None,
+            "actuals":           float(ac or 0),
+            "open_encumbrances": float(enc or 0),
+            "true_available":    float(true_avail) if true_avail is not None else None,
+            "pct_consumed":      float(pc) if pc is not None else None,
+            "fy_status":         fy_status,
+            "as_of_date":        as_of.isoformat() if as_of else None,
+        })
+    return out
+
+
+def get_office_totals(division: str, office: str, fy: int) -> dict[str, Any]:
+    """Aggregate KPIs for one Office in a given Division for the given FY."""
+    row = fetchone(
+        """
+        SELECT
+            SUM(v.Total_Budget)        AS Total_Budget,
+            SUM(v.Actuals)             AS Actuals,
+            SUM(v.Open_Encumbrances)   AS Open_Encumbrances,
+            SUM(v.True_Available)      AS True_Available,
+            COUNT(*)                   AS fc_count,
+            MAX(v.FY_Status)           AS FY_Status,
+            MAX(v.As_Of_Date)          AS As_Of_Date
+        FROM vw_budget_vs_actuals_by_funds_center v
+        LEFT JOIN dim_cost_center_office d ON d.Cost_Center = v.Funds_Center
+        WHERE v.Fiscal_Year = ?
+          AND COALESCE(d.Division, 'Unknown') = ?
+          AND COALESCE(d.Office,   'Unknown') = ?
+        """,
+        [fy, division, office],
+    )
+    if row is None:
+        return {}
+    tb, ac, enc, true_avail, fc_count, fy_status, as_of = row
+    ac_f  = float(ac or 0)
+    tb_f  = float(tb) if tb is not None else None
+    return {
+        "total_budget":      tb_f,
+        "actuals":           ac_f,
+        "open_encumbrances": float(enc or 0),
+        "true_available":    float(true_avail) if true_avail is not None else None,
+        "pct_consumed":      (ac_f / tb_f) if tb_f and tb_f > 0 else None,
+        "fc_count":          int(fc_count or 0),
+        "fy_status":         fy_status,
+        "as_of_date":        as_of.isoformat() if as_of else None,
+    }
+
+
+def get_fc_primary_funds(funds_center: str, fy: int, top_n: int = 3) -> list[dict[str, Any]]:
+    """Return the top N funds by actuals for a given Funds Center / FY.
+
+    Used to populate the ⓘ tooltip fund-restriction text for each FC row.
+    Reads from bex_fm_expense (column Funds_Cost_Center).
+    """
+    rows = fetchall(
+        """
+        SELECT
+            Fund,
+            SUM(-FY_Total) AS actuals
+        FROM bex_fm_expense
+        WHERE Funds_Cost_Center = ? AND Fiscal_Year = ?
+        GROUP BY Fund
+        HAVING SUM(-FY_Total) > 0
+        ORDER BY actuals DESC
+        LIMIT ?
+        """,
+        [funds_center, fy, top_n],
+    )
+    return [
+        {"fund_code": fund, "actuals": float(act or 0)}
+        for fund, act in rows
+    ]
+
+
+def get_encumbrance_lines(funds_center: str, fy: int) -> list[dict[str, Any]]:
+    """PO/Reservation detail rows for a single Funds Center.
+
+    Returns one row per commitment document line, with negative
+    Remaining_Balance preserved (not floored) so the UI can display
+    over-invoiced POs explicitly.  Includes consumed_pct for the
+    side-panel commitments view.
+    """
+    rows = fetchall(
+        """
+        SELECT
+            Detail_Type,
+            Reference_Doc_No,
+            Document_Date,
+            Vendor_Number,
+            Vendor_Name,
+            Original_Amount,
+            Invoiced_Amount,
+            Remaining_Balance
+        FROM bex_open_encumbrances
+        WHERE Funds_Center = ? AND Fiscal_Year = ?
+          AND Remaining_Balance != 0
+        ORDER BY Remaining_Balance DESC
+        """,
+        [funds_center, fy],
+    )
+    out = []
+    for dt, ref, doc_date, vnum, vname, orig, inv, rem in rows:
+        orig_f = float(orig or 0)
+        inv_f  = float(inv or 0)
+        consumed_pct = abs(inv_f) / orig_f if orig_f != 0 else None
+        out.append({
+            "detail_type":      dt,
+            "reference_doc_no": ref,
+            "document_date":    doc_date.isoformat() if doc_date else None,
+            "vendor_number":    vnum,
+            "vendor_name":      vname,
+            "original_amount":  orig_f,
+            "invoiced_amount":  inv_f,
+            "remaining_balance": float(rem or 0),
+            "consumed_pct":     consumed_pct,
+        })
+    return out
 
 
 def get_cost_center_handbook_breakdown(cost_center: str, fy: int) -> dict[str, Any]:

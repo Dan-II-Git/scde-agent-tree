@@ -615,6 +615,34 @@
         "Index_of_Taxpaying_Ability": "Each district's share of statewide fiscal capacity (District_Fiscal_Capacity / Statewide_Fiscal_Capacity). Values sum to 1.0 (±0.001) across all districts in an Index_Year. The equalization input used in the SAC What-If formula engine.",
         "Source_File": "Provenance: originating CSV filename. SC_Index_of_Taxpaying_Ability_2025.csv."
       }
+    },
+    "dim_cost_center_office": {
+      "purpose": "Org-chart dimension mapping every SAP cost center (H630*) to its 2026-03-05 SCDE division and office. Authoritative v1 — 117 explicit entries + prefix rules expanding H630JG* (Transportation Depots) and H630BU* (Bus Shops) to all 225 active cost centers. Join to bex_fm_expense or vw_budget_vs_actuals_by_funds_center on Cost_Center = Funds_Cost_Center / Funds_Center for Division/Office grouping in the internal dashboard.",
+      "stability": "stable",
+      "source": "db/dim_cost_center_office.json v1 (reviewed 2026-05-13 by Dan); org chart: data/uploads/Org Chart 3.5.26.pdf",
+      "columns": {
+        "Cost_Center": "10-character SAP cost center code, e.g. 'H630HG0010'. Primary key. Joins to sceis_agency_master.Cost_Center, bex_fm_expense.Funds_Cost_Center, vw_budget_vs_actuals_by_funds_center.Funds_Center.",
+        "Cost_Center_Name": "Human-readable name for the cost center, sourced from the JSON mapping field or sceis_agency_master.Name. May be NULL for prefix-rule rows without an agency master entry.",
+        "Division": "One of 8 org-chart divisions (Senior Advisor, Legal Affairs, College Career & Military Readiness, Chief Innovation Officer, Financial Services, Agency Operations, Strategic Engagement, District Operations & Support) plus External and System buckets.",
+        "Sub_Division": "Only populated for CCMR rows: 'Teaching & Learning' or 'Talent & Continuous Improvement'. NULL for all other divisions.",
+        "Office": "Leaf office within the division, e.g. 'Career Readiness', 'Transportation', 'Finance'. '(Division Admin)' for division-level overhead CCs.",
+        "Sub_Category": "'Depot' for H630JG* transportation depot cost centers; 'Bus Shop' for H630BU* bus maintenance shops. NULL for all other CCs.",
+        "Confidence": "'high' = direct org-chart match; 'medium' = reasonable inference, verify on reorg; 'low' = flagged for review.",
+        "Note": "Reviewer annotation explaining placement uncertainty or special cases. NULL when confidence is unambiguous."
+      }
+    },
+    "dim_functional_area": {
+      "purpose": "Dimension mapping every SAP Functional Area code (the CO 'appropriation activity' classifier) appearing in any H630 transaction to a category (State Aid to Districts, State Appropriation Activity, Federal Grant / Pass-Through, etc.). Covers 696 codes union'd across sceis_agency_master, sceis_detail_transaction, sceis_fmeddw, bex_fi_vendor_invoice — 100% join coverage validated 2026-05-14. Join via Functional_Area = <table>.Functional_Area for Category grouping in dashboards. NOTE: 6 Z-suffix rollup codes (H630_1ASZ, _660Z, _633Z, _573Z, _624Z, _639Z) carry real FI-ledger postings totaling ~$16.5M FY26 despite being FM hierarchy nodes — exclude when aggregating with their child codes to avoid double-count (see Note column).",
+      "stability": "stable",
+      "source": "db/dim_functional_area.json v1 (staged 2026-05-14 by code-catalog, validated by data-quality, corrections applied for H630_SRAE federal-vs-state and 6 Z-rollup posting flags)",
+      "columns": {
+        "Functional_Area": "SAP Functional Area code, e.g. 'H630X2034'. Primary key. Joins to sceis_detail_transaction.Functional_Area, sceis_fmeddw.Functional_Area, bex_fi_vendor_invoice.Functional_Area, sceis_agency_master.Functional_Area.",
+        "Name": "Human-readable description of the Functional Area. Sourced preferentially from bex_fi_vendor_invoice.Functional_Area_Desc, falling back to sceis_agency_master.Functional_Area_Desc. NULL for codes that appear only in transaction tables with no description registered in either master source.",
+        "Category": "Broad program category assigned by the code-catalog classifier. Values include: 'State Aid to Districts (Direct)', 'State Appropriation Activity', 'Federal Grant / Pass-Through', 'Legislative Earmark / External Org Grant', 'Child Nutrition', 'SC First Steps', 'Agency Administration', 'District Operations Support', 'External Entity (Administered)', 'Appropriation Z-Rollup', 'System / Interface', 'Unclassified'. Used for budget vs actuals grouping in the internal director dashboard.",
+        "Confidence": "Classifier confidence band: 'high' = pattern or keyword match is unambiguous; 'medium' = reasonable inference based on code prefix or partial description; 'low' = pattern not recognized or description absent — manual review recommended.",
+        "FY26_5xxx_Spend": "SUM(Debit_Credit_Amount) from sceis_detail_transaction WHERE GL_Account LIKE '5%' AND Fiscal_Year=2026 for this Functional_Area. NULL or 0 for codes with no FY26 5xxx postings. Negative values indicate net credits/reversals in the 5xxx range. Used as a spend-signal to prioritize classification review.",
+        "Note": "Classifier annotation explaining category placement, caveats, or review flags. For Z-rollup codes with real postings, documents the double-count risk and approximate FY26 posting total. NULL when the classification is unambiguous."
+      }
     }
   }
 }

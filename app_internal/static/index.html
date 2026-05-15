@@ -8,6 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/dashboard.css" />
+<link rel="stylesheet" href="https://unpkg.com/tippy.js@6/dist/tippy.css" />
+<script src="https://unpkg.com/@popperjs/core@2/dist/umd/popper.min.js"></script>
+<script src="https://unpkg.com/tippy.js@6/dist/tippy-bundle.umd.min.js"></script>
 </head>
 <body>
 <header class="topbar">
@@ -29,6 +32,11 @@
         <label><input type="radio" name="view" value="expenditures"> Expenditures (FI Ledger)</label>
       </fieldset>
       <div class="header-controls">
+        <fieldset class="radio-group header-radio header-radio-secondary" id="groupby-tabs">
+          <span class="header-radio-label">Group by</span>
+          <label><input type="radio" name="groupby" value="org" checked> Org Chart</label>
+          <label><input type="radio" name="groupby" value="fa"> Functional Area</label>
+        </fieldset>
         <label class="control">
           FY
           <select id="fy"></select>
@@ -41,6 +49,6 @@
   </section>
 </main>
 
-<script src="/static/dashboard.js" type="module"></script>
+<script src="/static/dashboard.js"></script>
 </body>
 </html>
