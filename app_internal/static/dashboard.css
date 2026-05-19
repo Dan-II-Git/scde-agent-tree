@@ -780,3 +780,121 @@ td.ib-clickable-cell:hover {
   padding-left: calc(var(--space-3) + 20px);
   font-weight: 400;
 }
+
+/* ──────────────────────────────────────────────────────────────────
+   Rollup view — Org > Fund > FA > CI
+   Used by both Tree and Pivot layouts (they share row markup;
+   only the columns differ).
+   ────────────────────────────────────────────────────────────────── */
+
+.ib-rollup-caveats {
+  margin: var(--space-3) 0 var(--space-4) 0;
+  padding: var(--space-2) var(--space-3);
+  background: #FFF7E6;
+  border: 1px solid #F5D58F;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--brand-secondary);
+}
+.ib-rollup-caveats summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--semantic-warning);
+}
+.ib-rollup-caveats ul { margin: var(--space-2) 0 0 0; padding-left: 20px; }
+.ib-rollup-caveats li { margin: 2px 0; }
+
+/* Tree / pivot tables: keep table cursor neutral; only the caret is clickable */
+.ib-rollup-tree, .ib-pivot-table {
+  font-size: 12px;
+}
+.ib-rollup-tree tbody tr,
+.ib-pivot-table tbody tr {
+  cursor: default;
+}
+.ib-rollup-tree tbody tr:hover,
+.ib-pivot-table tbody tr:hover {
+  background: #F7F9FB;
+}
+
+/* Caret toggle */
+.ib-tree-caret {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--brand-tertiary);
+  font-size: 10px; line-height: 1;
+  cursor: pointer;
+  margin-right: 6px;
+}
+.ib-tree-caret:hover { background: var(--neutral-bg); color: var(--brand-primary); }
+.ib-tree-caret-spacer {
+  display: inline-block; width: 18px; height: 18px;
+  margin-right: 6px;
+}
+
+/* Kind badge (DIVISION / OFFICE / FC / FUND / FA / CI) */
+.ib-tree-kind {
+  display: inline-block;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  padding: 1px 5px; margin-right: 6px;
+  border-radius: 3px;
+  background: #EEF2F5;
+  color: var(--brand-tertiary);
+  text-transform: uppercase;
+  font-family: var(--font-display);
+  vertical-align: middle;
+}
+.ib-tree-kind-division { background: var(--brand-primary);   color: #fff; }
+.ib-tree-kind-office   { background: var(--brand-secondary); color: #fff; }
+.ib-tree-kind-group    { background: #6B8AA1;                color: #fff; }
+.ib-tree-kind-fc       { background: var(--brand-tertiary);  color: #fff; }
+.ib-tree-kind-fund     { background: #E6EEF4;                color: var(--brand-secondary); }
+.ib-tree-kind-fa       { background: #FDF0D5;                color: #8A5A00; }
+.ib-tree-kind-ci       { background: #F4F4F4;                color: #555; }
+
+/* Numeric helpers */
+.ib-table .neg   { color: var(--semantic-danger); font-weight: 500; }
+.ib-table .muted { color: var(--brand-tertiary); opacity: 0.6; }
+
+/* %-spent color classes (cell-level, lighter than the .kpi variants) */
+.ib-table td.num.consumed-warning    { color: var(--semantic-warning); font-weight: 600; }
+.ib-table td.num.consumed-overspent,
+.ib-table td.num.consumed-negative   { color: var(--semantic-danger); font-weight: 600; }
+
+/* Pivot-specific column headers */
+.ib-pivot-scroll {
+  overflow-x: auto;
+  margin: var(--space-3) 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+.ib-pivot-table {
+  border-collapse: collapse;
+  white-space: nowrap;
+  min-width: 100%;
+}
+.ib-pivot-table th.ib-pivot-fund-h,
+.ib-pivot-table th.ib-pivot-total-h {
+  text-align: center;
+  border-left: 1px solid var(--border-subtle);
+  padding: var(--space-2) var(--space-3);
+  background: var(--neutral-bg);
+}
+.ib-pivot-table th.ib-pivot-total-h {
+  background: var(--brand-primary);
+  color: #fff;
+}
+.ib-pivot-fund-name { font-weight: 600; font-size: 12px; color: var(--brand-primary); }
+.ib-pivot-fund-code { font-size: 10px; color: var(--brand-tertiary); font-family: var(--font-mono); }
+.ib-pivot-total-h .ib-pivot-fund-name,
+.ib-pivot-total-h .ib-pivot-fund-code { color: #fff; }
+
+.ib-pivot-footnote {
+  font-size: 11px;
+  color: var(--brand-tertiary);
+  margin: var(--space-2) 0 0 0;
+  font-style: italic;
+}

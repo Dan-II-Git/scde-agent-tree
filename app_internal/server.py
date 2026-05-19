@@ -277,6 +277,16 @@ def api_panel_commitments(
     )
 
 
+# ── New: Org > Fund > FA > CI rollup (JSON; frontend renders tree/pivot) ──
+
+@app.get("/api/report/rollup")
+def api_rollup(fy: int = Query(...)) -> JSONResponse:
+    fys = q.list_fiscal_years()
+    if fy not in fys:
+        raise HTTPException(400, f"FY{fy} not loaded; got {fys}")
+    return JSONResponse(q.get_rollup_rows(fy))
+
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 

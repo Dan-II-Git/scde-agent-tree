@@ -1119,3 +1119,420 @@ def get_cost_center_handbook_breakdown(cost_center: str, fy: int) -> dict[str, A
             for hc, hn, amt, rc in rows
         ],
     }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Rollup view — Org > Fund > FA > CI (backs /api/report/rollup)
+# ─────────────────────────────────────────────────────────────────────
+# Returns leaf rows at the (Division, Office, Funds_Center, Fund, FA, CI)
+# grain so the frontend can build either the tree or the pivot layout
+# from a single payload.
+#
+# ── Actuals (FY26) ──
+# FM-authoritative actuals come from bex_fm_expense (SUM(-FY_Total)) at
+# FC x Fund x CI grain — these reconcile to vw_budget_vs_actuals_by_fund.
+# bex_fm_expense has no Functional_Area, so to fill the FA leaf level
+# we apportion each cell's actuals across FA in proportion to
+# bex_fi_vendor_invoice's share of FI activity for the same FC x Fund x CI.
+# Cells with no FI Vendor Invoice counterpart (mostly payroll-routed
+# 5010xx / 5130xx, ~3.4% of FY26 FM dollars) land in an "(unallocated FA)"
+# bucket; the agency total still reconciles to the authoritative $6.02B.
+#
+# NOTE: FMEDDW GM Budget Doc Type rows look superficially like actuals
+# but are a budget-transfer mechanism (Receive + Send net to zero on
+# every cell). They are NOT spend and are not used here.
+#
+# ── Budget (FY26) ──
+# From sceis_fmeddw at FC x Fund x FA x CI grain (the only source with
+# all four dimensions).
+#
+# ── FY25 ──
+# Same bex_fm_expense source for actuals at FC x Fund x CI; FA is not
+# available before FY26 (bex_fi_vendor_invoice has FA for both years
+# but FMEDDW has none for FY25, and the FA share bridge requires both).
+# Leaf rows return Functional_Area = NULL and the endpoint flags
+# fa_supported = false. Budget at the FC grain is absent in FY25 (lives
+# only at Fund x CI on bex_budget_vs_actuals) so leaf budgets are NULL
+# and the agency-wide budget total comes from vw_budget_vs_actuals_by_fund.
+#
+# ── Encumbrances ──
+# Intentionally NOT attached to leaf rows: bex_open_encumbrances has no
+# Functional_Area, and attaching at FC x Fund x CI would double-count
+# across FA. The endpoint returns agency-wide encumbrance totals
+# separately so the dashboard surfaces them as a top-line KPI.
+
+def _ci_name_lookup(fy: int) -> dict[str, str]:
+    """Best-effort Commitment_Item -> readable name map.
+
+    FMEDDW uses 6-char CIs (e.g. '501058') while bex_fm_expense and
+    lookup_gl_account use 10-char (e.g. '5010580000'). We build the
+    name map at both grains so callers can lookup either form.
+    Picks the highest-|$| GL per CI to break ties. Returns {} on any
+    failure so callers can degrade gracefully (caveat #6).
+    """
+    rows = fetchall(
+        """
+        WITH gl_per_ci AS (
+          SELECT
+            e.Commitment_Item,
+            g.Handbook_Name                          AS Name,
+            SUM(ABS(e.FY_Total))                     AS w
+          FROM bex_fm_expense e
+          LEFT JOIN lookup_gl_account g ON g.GL_Account = e.GL_Account
+          WHERE e.Fiscal_Year = ?
+          GROUP BY e.Commitment_Item, g.Handbook_Name
+        ),
+        ranked AS (
+          SELECT
+            Commitment_Item,
+            Name,
+            ROW_NUMBER() OVER (PARTITION BY Commitment_Item ORDER BY w DESC) AS rn
+          FROM gl_per_ci
+          WHERE Name IS NOT NULL
+        ),
+        ci10 AS (
+          SELECT Commitment_Item, Name FROM ranked WHERE rn = 1
+        ),
+        ci6 AS (
+          SELECT SUBSTR(Commitment_Item, 1, 6) AS Commitment_Item,
+                 ANY_VALUE(Name)               AS Name
+          FROM ci10
+          GROUP BY 1
+        )
+        SELECT Commitment_Item, Name FROM ci10
+        UNION ALL
+        SELECT Commitment_Item, Name FROM ci6
+        """,
+        [fy],
+    )
+    return {ci: name for ci, name in rows if ci and name}
+
+
+def get_rollup_rows(fy: int) -> dict[str, Any]:
+    """Org > Fund > FA > CI rollup payload for one fiscal year.
+
+    Returns a dict:
+      {
+        "fy":            int,
+        "fy_status":     "Partial" | "Complete",
+        "as_of_date":    str | None,
+        "fa_supported":  bool,            # False for FY < 2026
+        "fc_budget":     bool,            # Budget broken to FC grain (False for FY25)
+        "rows":          [ leaf dicts ],
+        "totals":        { current_budget, actuals, open_encumbrances,
+                           true_available, pct_spent },
+        "caveats":       [ str ],
+      }
+
+    Each leaf row dict has:
+      division, sub_division, office, sub_category,
+      funds_center, fc_name,
+      fund_code, fund_name,
+      functional_area, fa_name, fa_category,          # None for FY25
+      commitment_item, ci_name,
+      current_budget, actuals
+    """
+    fa_supported = fy >= 2026
+    fc_budget    = fy >= 2026
+
+    # CI name lookup (best effort)
+    ci_names = _ci_name_lookup(fy)
+
+    # Fund-code -> readable Fund_Name from BEx if available, else code
+    fund_rows = fetchall(
+        """
+        SELECT DISTINCT Fund_Code, Fund_Name
+        FROM bex_budget_vs_actuals
+        WHERE Fiscal_Year = ? AND Fund_Name IS NOT NULL
+        """,
+        [fy],
+    )
+    fund_names = {fc: fn for fc, fn in fund_rows}
+
+    if fa_supported:
+        # FY26+ — actuals from bex_fm_expense (FM-authoritative) apportioned
+        # across FA via bex_fi_vendor_invoice shares within each
+        # (FC, Fund, CI) cell. Budget from FMEDDW at the FA grain.
+        #
+        # NOTE on grain mismatch: FMEDDW CI is 6-char ('501058') while
+        # bex_fm_expense and bex_fi_vendor_invoice CI/GL are 10-char
+        # ('5010580000'). We bridge by stripping FMEDDW's budget CI to
+        # 10-char by appending '0000' (the leaf form) — works because every
+        # FMEDDW 6-char CI rolls up at least one 10-char leaf in the FM/FI
+        # tables. Cells where the bridge produces no FM-actuals match
+        # surface with Actuals = 0; cells with FM actuals but no budget
+        # entry surface with Current_Budget = NULL.
+        rows = fetchall(
+            """
+            WITH
+            -- 1. FM-authoritative actuals at FC x Fund x CI(10) grain
+            fm_actuals AS (
+              SELECT
+                Funds_Cost_Center AS Funds_Center,
+                Fund,
+                Commitment_Item   AS CI10,
+                SUM(-FY_Total)    AS Actuals
+              FROM bex_fm_expense
+              WHERE Fiscal_Year = ?
+              GROUP BY 1,2,3
+              HAVING SUM(-FY_Total) <> 0
+            ),
+            -- 2. FI Vendor Invoice shares — provides the FA breakdown
+            vi_shares AS (
+              SELECT
+                Funds_Center,
+                Fund,
+                GL_Account        AS CI10,
+                Functional_Area,
+                SUM(ABS(Amount_FM)) AS Weight
+              FROM bex_fi_vendor_invoice
+              WHERE Fiscal_Year = ?
+              GROUP BY 1,2,3,4
+              HAVING SUM(ABS(Amount_FM)) > 0
+            ),
+            vi_totals AS (
+              SELECT Funds_Center, Fund, CI10, SUM(Weight) AS Total_Weight
+              FROM vi_shares
+              GROUP BY 1,2,3
+            ),
+            -- 3. Apportion FM actuals across FA using VI shares; cells with no
+            --    VI counterpart get a single "(unallocated FA)" row.
+            apportioned AS (
+              SELECT
+                fm.Funds_Center, fm.Fund, fm.CI10,
+                vs.Functional_Area,
+                fm.Actuals * (vs.Weight / vt.Total_Weight) AS Actuals
+              FROM fm_actuals fm
+              JOIN vi_totals vt USING (Funds_Center, Fund, CI10)
+              JOIN vi_shares vs USING (Funds_Center, Fund, CI10)
+              UNION ALL
+              SELECT
+                fm.Funds_Center, fm.Fund, fm.CI10,
+                CAST(NULL AS VARCHAR) AS Functional_Area,
+                fm.Actuals
+              FROM fm_actuals fm
+              LEFT JOIN vi_totals vt USING (Funds_Center, Fund, CI10)
+              WHERE vt.Total_Weight IS NULL
+            ),
+            -- 4. Budget from FMEDDW at FC x Fund x FA x CI grain. Bridge the
+            --    6-char FMEDDW CI to 10-char by appending '0000'.
+            fmeddw_budget AS (
+              SELECT
+                Funds_Center,
+                Fund,
+                Functional_Area,
+                Commitment_Item || '0000' AS CI10,
+                SUM(CASE WHEN Budget_Type IN (
+                  'ORIGINAL APPROPRIATIONS','SUPPLEMENTAL APPROPRIATIONS','BUDGET ADJUSTMENTS',
+                  'Carryforward Gen Fund','Carryforward Special Items','2% APPROPRIATION BUDGET',
+                  'TRANSFER OF APPROPRIATIONS','TRANSFER OF SALARY/FRINGE',
+                  'INTER-AGENCY TRANSFER','ALLOCATIONS-TRSFRS FR EMPL BEN'
+                ) THEN Amount ELSE 0 END) AS Current_Budget
+              FROM sceis_fmeddw
+              WHERE Fiscal_Year = ? AND Is_Rollup = FALSE
+              GROUP BY 1,2,3,4
+              HAVING SUM(CASE WHEN Budget_Type IN (
+                  'ORIGINAL APPROPRIATIONS','SUPPLEMENTAL APPROPRIATIONS','BUDGET ADJUSTMENTS',
+                  'Carryforward Gen Fund','Carryforward Special Items','2% APPROPRIATION BUDGET',
+                  'TRANSFER OF APPROPRIATIONS','TRANSFER OF SALARY/FRINGE',
+                  'INTER-AGENCY TRANSFER','ALLOCATIONS-TRSFRS FR EMPL BEN'
+                ) THEN Amount ELSE 0 END) <> 0
+            ),
+            -- 5. Full-outer join budget to apportioned actuals at FA leaf grain.
+            joined AS (
+              SELECT
+                COALESCE(b.Funds_Center,    a.Funds_Center)    AS Funds_Center,
+                COALESCE(b.Fund,            a.Fund)            AS Fund,
+                COALESCE(b.Functional_Area, a.Functional_Area) AS Functional_Area,
+                COALESCE(b.CI10,            a.CI10)            AS CI10,
+                b.Current_Budget,
+                SUM(a.Actuals)                                  AS Actuals
+              FROM fmeddw_budget b
+              FULL OUTER JOIN apportioned a
+                ON  a.Funds_Center      = b.Funds_Center
+                AND a.Fund              = b.Fund
+                AND a.CI10              = b.CI10
+                AND COALESCE(a.Functional_Area,'__NULL__')
+                  = COALESCE(b.Functional_Area,'__NULL__')
+              GROUP BY 1,2,3,4, b.Current_Budget
+            )
+            SELECT
+              COALESCE(d.Division, 'Unknown')                   AS Division,
+              d.Sub_Division,
+              COALESCE(d.Office,   'Unknown')                   AS Office,
+              d.Sub_Category,
+              j.Funds_Center,
+              COALESCE(d.Cost_Center_Name, am.Name, j.Funds_Center) AS FC_Name,
+              j.Fund                                            AS Fund_Code,
+              j.Functional_Area,
+              COALESCE(fa.Name,     j.Functional_Area, '(unallocated FA)') AS FA_Name,
+              COALESCE(fa.Category, 'Unknown')                  AS FA_Category,
+              j.CI10                                            AS Commitment_Item,
+              j.Current_Budget,
+              j.Actuals
+            FROM joined j
+            LEFT JOIN dim_cost_center_office d  ON d.Cost_Center      = j.Funds_Center
+            LEFT JOIN sceis_agency_master    am ON am.Cost_Center     = j.Funds_Center
+            LEFT JOIN dim_functional_area    fa ON fa.Functional_Area = j.Functional_Area
+            WHERE COALESCE(j.Current_Budget, 0) <> 0 OR COALESCE(j.Actuals, 0) <> 0
+            ORDER BY Division, Office, j.Funds_Center, j.Fund, j.Functional_Area,
+                     j.CI10
+            """,
+            [fy, fy, fy],
+        )
+    else:
+        # FY25 — actuals only at FC x Fund x CI, no FA
+        rows = fetchall(
+            """
+            WITH spend AS (
+              SELECT
+                e.Funds_Cost_Center  AS Funds_Center,
+                e.Fund               AS Fund_Code,
+                e.Commitment_Item,
+                SUM(-e.FY_Total)     AS Actuals
+              FROM bex_fm_expense e
+              WHERE e.Fiscal_Year = ?
+              GROUP BY 1,2,3
+              HAVING SUM(-e.FY_Total) != 0
+            )
+            SELECT
+              COALESCE(d.Division,    'Unknown')                AS Division,
+              d.Sub_Division,
+              COALESCE(d.Office,      'Unknown')                AS Office,
+              d.Sub_Category,
+              s.Funds_Center,
+              COALESCE(d.Cost_Center_Name, am.Name, s.Funds_Center) AS FC_Name,
+              s.Fund_Code,
+              CAST(NULL AS VARCHAR)                             AS Functional_Area,
+              CAST(NULL AS VARCHAR)                             AS FA_Name,
+              CAST(NULL AS VARCHAR)                             AS FA_Category,
+              s.Commitment_Item,
+              CAST(NULL AS DOUBLE)                              AS Current_Budget,
+              s.Actuals
+            FROM spend s
+            LEFT JOIN dim_cost_center_office d  ON d.Cost_Center  = s.Funds_Center
+            LEFT JOIN sceis_agency_master    am ON am.Cost_Center = s.Funds_Center
+            ORDER BY Division, Office, s.Funds_Center, s.Fund_Code, s.Commitment_Item
+            """,
+            [fy],
+        )
+
+    leaf: list[dict[str, Any]] = []
+    for (division, sub_division, office, sub_category, fc, fc_name,
+         fund_code, fa, fa_name, fa_cat, ci, budget, actuals) in rows:
+        leaf.append({
+            "division":         division,
+            "sub_division":     sub_division,
+            "office":           office,
+            "sub_category":     sub_category,
+            "funds_center":     fc,
+            "fc_name":          fc_name,
+            "fund_code":        fund_code,
+            "fund_name":        fund_names.get(fund_code, fund_code),
+            "functional_area":  fa,
+            "fa_name":          fa_name,
+            "fa_category":      fa_cat,
+            "commitment_item":  ci,
+            "ci_name":          ci_names.get(ci),
+            "current_budget":   float(budget) if budget is not None else None,
+            "actuals":          float(actuals or 0),
+        })
+
+    # Agency-level totals — pull from authoritative views, not leaf sums,
+    # so encumbrances and FY25 budget are accurate.
+    fund_totals = fetchone(
+        """
+        SELECT
+            SUM(Current_Budget)      AS budget,
+            SUM(Actuals)             AS actuals,
+            SUM(Open_Encumbrances)   AS enc,
+            SUM(True_Available)      AS true_avail
+        FROM vw_budget_vs_actuals_by_fund
+        WHERE Fiscal_Year = ?
+        """,
+        [fy],
+    )
+    if fund_totals:
+        tb, ta, te, tav = fund_totals
+        budget_f  = float(tb)  if tb  is not None else None
+        actuals_f = float(ta or 0)
+        totals = {
+            "current_budget":    budget_f,
+            "actuals":           actuals_f,
+            "open_encumbrances": float(te or 0),
+            "true_available":    float(tav) if tav is not None else None,
+            "pct_spent":         (actuals_f / budget_f) if budget_f else None,
+        }
+    else:
+        totals = {
+            "current_budget": None, "actuals": 0.0,
+            "open_encumbrances": 0.0, "true_available": None, "pct_spent": None,
+        }
+
+    # Leaf-level totals — used to surface the budget reconciliation gap
+    # honestly in the caveats (FMEDDW under-reports agency budget by ~23%
+    # in FY26 because some appropriations are posted at Fund x CI only).
+    leaf_budget_sum  = sum((r["current_budget"] or 0) for r in leaf)
+    leaf_actuals_sum = sum((r["actuals"]        or 0) for r in leaf)
+
+    meta = get_fiscal_year_status(fy)
+    caveats: list[str] = []
+    if not fa_supported:
+        caveats.append(
+            "Functional Area grain not available before FY26 — the FA level "
+            "has been collapsed on this view."
+        )
+    if not fc_budget:
+        caveats.append(
+            "FY25 budget is posted only at Fund x CI grain (no Funds Center). "
+            "Leaf rows show actuals only; agency-wide budget total is "
+            "authoritative from vw_budget_vs_actuals_by_fund."
+        )
+    # Actuals reconciliation note (FA apportionment + unallocated bucket)
+    if fa_supported:
+        unalloc = sum((r["actuals"] or 0) for r in leaf
+                      if r["functional_area"] is None)
+        if abs(unalloc) > 0:
+            pct = (abs(unalloc) / abs(leaf_actuals_sum) * 100) if leaf_actuals_sum else 0
+            caveats.append(
+                f"Actuals at the FA level are apportioned across FA using "
+                f"FI Vendor Invoice shares within each (FC, Fund, CI) cell. "
+                f"${abs(unalloc):,.0f} ({pct:.1f}%) of FM actuals have no FI "
+                f"Vendor Invoice counterpart (mostly payroll-routed salaries "
+                f"and benefits) and land in the '(unallocated FA)' bucket."
+            )
+    # Budget reconciliation gap — leaf sums use FMEDDW which doesn't carry
+    # federal funds at the FC x FA grain
+    if (totals.get("current_budget") is not None
+            and abs(totals["current_budget"]) > 0
+            and abs(totals["current_budget"] - leaf_budget_sum) > 1000):
+        gap = totals["current_budget"] - leaf_budget_sum
+        pct = abs(gap) / abs(totals["current_budget"]) * 100
+        caveats.append(
+            f"Leaf budget rows sum to ${leaf_budget_sum:,.0f} but the agency "
+            f"appropriated budget is ${totals['current_budget']:,.0f} (gap "
+            f"${gap:,.0f}, {pct:.1f}%). Federal funds (50000000 'FEDERAL FUNDS' "
+            f"plus the smaller 30000000/40000000/50380000/50550000/51C70007/"
+            f"55320000 federal/restricted funds) are appropriated at the fund "
+            f"aggregate level in bex_budget_vs_actuals but carry no FC x FA x CI "
+            f"rows in FMEDDW, accounting for ~99% of this gap. The remaining "
+            f"~1% is timing/rounding noise in General Fund, EIA, Lottery and "
+            f"Operating Revenue. Apportionment of federal appropriations to "
+            f"FC x FA is a planned follow-up."
+        )
+    caveats.append(
+        "Open Encumbrances are tracked at Fund x Funds_Center x CI grain "
+        "(no Functional Area). They appear in the agency total but are not "
+        "broken out at the FA leaf level."
+    )
+
+    return {
+        "fy":            fy,
+        "fy_status":     meta.get("status"),
+        "as_of_date":    meta.get("as_of_date"),
+        "fa_supported":  fa_supported,
+        "fc_budget":     fc_budget,
+        "rows":          leaf,
+        "totals":        totals,
+        "caveats":       caveats,
+    }

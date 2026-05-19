@@ -1135,18 +1135,6 @@ def render_open_commitments(
         {''.join(cards)}
       </div>
     </div>
-    <script>
-    document.querySelectorAll('.ib-enc-card-header').forEach(h => {{
-      h.addEventListener('click', () => {{
-        const target = document.getElementById(h.dataset.target);
-        if (target) {{
-          const open = target.style.display !== 'none';
-          target.style.display = open ? 'none' : '';
-          h.querySelector('.ib-collapsible-toggle').textContent = open ? '\\u25BA' : '\\u25BC';
-        }}
-      }});
-    }});
-    </script>
     """
 
 

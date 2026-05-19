@@ -26,7 +26,8 @@
   <section class="panel">
     <header class="panel-header">
       <fieldset class="radio-group header-radio" id="view-tabs">
-        <label><input type="radio" name="view" value="budget" checked> Budget vs Actuals (FM)</label>
+        <label><input type="radio" name="view" value="rollup" checked> Rollup (Org &rarr; Fund &rarr; FA &rarr; CI)</label>
+        <label><input type="radio" name="view" value="budget"> Budget vs Actuals (FM)</label>
         <label><input type="radio" name="view" value="fund"> Agency Budget by Fund</label>
         <label><input type="radio" name="view" value="commitments"> Open Commitments</label>
         <label><input type="radio" name="view" value="expenditures"> Expenditures (FI Ledger)</label>
@@ -36,6 +37,11 @@
           <span class="header-radio-label">Group by</span>
           <label><input type="radio" name="groupby" value="org" checked> Org Chart</label>
           <label><input type="radio" name="groupby" value="fa"> Functional Area</label>
+        </fieldset>
+        <fieldset class="radio-group header-radio header-radio-secondary" id="rollup-mode-tabs">
+          <span class="header-radio-label">Layout</span>
+          <label><input type="radio" name="rollupmode" value="tree" checked> Tree</label>
+          <label><input type="radio" name="rollupmode" value="pivot"> Pivot</label>
         </fieldset>
         <label class="control">
           FY

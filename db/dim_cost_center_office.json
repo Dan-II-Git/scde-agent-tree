@@ -1,198 +1,926 @@
 {
-  "version": "v1",
-  "as_of": "2026-05-13",
+  "version": "v1+busadminfix",
+  "as_of": "2026-05-15",
   "source": "Aligned to data/uploads/Org Chart 3.5.26.pdf (revised 2026-03-05) — designated authoritative. Cost-center-to-office assignments reviewed and confirmed by Dan on 2026-05-13. Subsequent SCDE reorgs should re-trigger a review.",
-
   "hierarchy_note": "Two top executives (State Superintendent, Chief of Staff). Eight divisions report up to them (4 each). CCMR has two sub-divisions (Teaching & Learning, Talent & Continuous Improvement). Every other division has offices directly. Plus two non-org-chart buckets: 'External' (Governor's Schools, SC First Steps, Public Charter School District, State Board, Endowment — administered by SCDE but not org-chart subordinates) and 'System' (interfaces, CAFR).",
-
-  "executives": ["State Superintendent", "Chief of Staff"],
-
+  "executives": [
+    "State Superintendent",
+    "Chief of Staff"
+  ],
   "divisions": {
-    "Senior Advisor":                       { "reports_to": "State Superintendent", "offices": ["Superintendent's Office", "Government Relations", "Policy"] },
-    "Legal Affairs":                        { "reports_to": "State Superintendent", "offices": ["General Counsel"] },
-    "College, Career, & Military Readiness":{ "reports_to": "State Superintendent", "sub_divisions": {
-        "Teaching & Learning":              ["Instructional Materials", "Assessment & Standards", "Career Readiness", "Instructional Supports", "Special Education", "VirtualSC"],
-        "Talent & Continuous Improvement":  ["Federal & State Accountability", "Educator Services", "Leadership Effectiveness", "Accountability & Research"]
-    } },
-    "Chief Innovation Officer":             { "reports_to": "State Superintendent", "offices": ["Chief Innovation Officer"] },
-    "Financial Services":                   { "reports_to": "Chief of Staff", "offices": ["Finance", "Grant Services", "Auditing Services", "Procurement"] },
-    "Agency Operations":                    { "reports_to": "Chief of Staff", "offices": ["Information Technology", "Implementation & Support", "Facilities Operations", "Human Resources"] },
-    "Strategic Engagement":                 { "reports_to": "Chief of Staff", "offices": ["Communications", "Safe Schools", "Education Choice & Family Engagement", "Student Support", "Student & Community Engagement"] },
-    "District Operations & Support":        { "reports_to": "Chief of Staff", "offices": ["Health & Nutrition", "Transportation", "School Facilities"] }
+    "Senior Advisor": {
+      "reports_to": "State Superintendent",
+      "offices": [
+        "Superintendent's Office",
+        "Government Relations",
+        "Policy"
+      ]
+    },
+    "Legal Affairs": {
+      "reports_to": "State Superintendent",
+      "offices": [
+        "General Counsel"
+      ]
+    },
+    "College, Career, & Military Readiness": {
+      "reports_to": "State Superintendent",
+      "sub_divisions": {
+        "Teaching & Learning": [
+          "Instructional Materials",
+          "Assessment & Standards",
+          "Career Readiness",
+          "Instructional Supports",
+          "Special Education",
+          "VirtualSC"
+        ],
+        "Talent & Continuous Improvement": [
+          "Federal & State Accountability",
+          "Educator Services",
+          "Leadership Effectiveness",
+          "Accountability & Research"
+        ]
+      }
+    },
+    "Chief Innovation Officer": {
+      "reports_to": "State Superintendent",
+      "offices": [
+        "Chief Innovation Officer"
+      ]
+    },
+    "Financial Services": {
+      "reports_to": "Chief of Staff",
+      "offices": [
+        "Finance",
+        "Grant Services",
+        "Auditing Services",
+        "Procurement"
+      ]
+    },
+    "Agency Operations": {
+      "reports_to": "Chief of Staff",
+      "offices": [
+        "Information Technology",
+        "Implementation & Support",
+        "Facilities Operations",
+        "Human Resources"
+      ]
+    },
+    "Strategic Engagement": {
+      "reports_to": "Chief of Staff",
+      "offices": [
+        "Communications",
+        "Safe Schools",
+        "Education Choice & Family Engagement",
+        "Student Support",
+        "Student & Community Engagement"
+      ]
+    },
+    "District Operations & Support": {
+      "reports_to": "Chief of Staff",
+      "offices": [
+        "Health & Nutrition",
+        "Transportation",
+        "School Facilities"
+      ]
+    }
   },
-
   "external_buckets": {
-    "External": ["State Board of Education", "Governor's School for Science and Mathematics", "Governor's School for the Arts and Humanities", "SC First Steps", "SC Public Charter School District", "Children's Education Endowment"],
-    "System":   ["Interface / Unbudgeted"]
+    "External": [
+      "State Board of Education",
+      "Governor's School for Science and Mathematics",
+      "Governor's School for the Arts and Humanities",
+      "SC First Steps",
+      "SC Public Charter School District",
+      "Children's Education Endowment"
+    ],
+    "System": [
+      "Interface / Unbudgeted"
+    ]
   },
-
   "mapping": {
-    "H630000010": { "name": "SUPERINTENDENT OF ED",       "division": "Senior Advisor",                            "office": "Superintendent's Office",                "confidence": "high" },
-    "H63000CAFR": { "name": "Education Department",       "division": "System",                                    "office": "Interface / Unbudgeted",                 "confidence": "high" },
-    "H6300AA010": { "name": "Superintendent of Ed",       "division": "Senior Advisor",                            "office": "Superintendent's Office",                "confidence": "high" },
-    "H6300AC010": { "name": "Communications",             "division": "Strategic Engagement",                      "office": "Communications",                         "confidence": "high" },
-
-    "H630A00010": { "name": "LEGISLATIVE AND PUBL",       "division": "Senior Advisor",                            "office": "Government Relations",                   "confidence": "high" },
-    "H630AA0010": { "name": "Superintendent of Ed",       "division": "Senior Advisor",                            "office": "Superintendent's Office",                "confidence": "high" },
-    "H630AB0010": { "name": "Dep Super & Sr Advisor",     "division": "Senior Advisor",                            "office": "Superintendent's Office",                "confidence": "medium", "note": "'Dep Super' = Deputy Superintendent (which is the Senior Advisor on the new chart). Could be its own admin CC under Senior Advisor." },
-    "H630AC0010": { "name": "Communications",             "division": "Strategic Engagement",                      "office": "Communications",                         "confidence": "high" },
-    "H630AD0010": { "name": "Strategic Engagement",       "division": "Strategic Engagement",                      "office": "(Division Admin)",                       "confidence": "high", "note": "Division-level admin CC (the division's own name)" },
-    "H630AE0010": { "name": "Facilities Operations",      "division": "Agency Operations",                         "office": "Facilities Operations",                  "confidence": "high" },
-    "H630AF0010": { "name": "Implementation and Support", "division": "Agency Operations",                         "office": "Implementation & Support",               "confidence": "high" },
-    "H630AG0010": { "name": "Agency Operations",          "division": "Agency Operations",                         "office": "(Division Admin)",                       "confidence": "high" },
-    "H630AS0010": { "name": "OFC ASSESSMENT & STA",       "division": "College, Career, & Military Readiness",     "office": "Assessment & Standards",                 "sub_division": "Teaching & Learning", "confidence": "high" },
-
-    "H630B00010": { "name": "General Counsel",            "division": "Legal Affairs",                             "office": "General Counsel",                        "confidence": "high" },
-    "H630BA0010": { "name": "Governmental Affairs",       "division": "Senior Advisor",                            "office": "Government Relations",                   "confidence": "high" },
-    "H630BG0010": { "name": "Grants",                     "division": "Financial Services",                        "office": "Grant Services",                         "confidence": "high" },
-    "H630BP0010": { "name": "Procurement",                "division": "Financial Services",                        "office": "Procurement",                            "confidence": "high" },
-
-    "H630C00010": { "name": "Auditing Services",          "division": "Financial Services",                        "office": "Auditing Services",                      "confidence": "high" },
-    "H630CS0010": { "name": "CHARTER SCHOOLS",            "division": "Strategic Engagement",                      "office": "Education Choice & Family Engagement",   "confidence": "high" },
-
-    "H630D00010": { "name": "Governmental Affairs",       "division": "Senior Advisor",                            "office": "Government Relations",                   "confidence": "medium", "note": "AGY program 'Special Projects' — could be a re-purposed CC. Verify." },
-    "H630DA0010": { "name": "Strategic Engagement",       "division": "Strategic Engagement",                      "office": "(Division Admin)",                       "confidence": "high" },
-    "H630DB0010": { "name": "Safe Schools",               "division": "Strategic Engagement",                      "office": "Safe Schools",                           "confidence": "high" },
-    "H630DC0010": { "name": "Communications",             "division": "Strategic Engagement",                      "office": "Communications",                         "confidence": "high" },
-    "H630DD0010": { "name": "Stu & Com Engagement",       "division": "Strategic Engagement",                      "office": "Student & Community Engagement",         "confidence": "high" },
-    "H630DE0010": { "name": "Student Support",            "division": "Strategic Engagement",                      "office": "Student Support",                        "confidence": "high" },
-    "H630DF0010": { "name": "Education Choice",           "division": "Strategic Engagement",                      "office": "Education Choice & Family Engagement",   "confidence": "high" },
-
-    "H630E00010": { "name": "Chief Of Staff",             "division": "Chief of Staff (Direct)",                   "office": "Chief of Staff",                         "confidence": "high", "note": "Reports directly to Chief of Staff with no division box on org chart" },
-    "H630EA0010": { "name": "Research and Data Analysis", "division": "College, Career, & Military Readiness",     "office": "Accountability & Research",              "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630EB0010": { "name": "Chief Strategy Ofc",         "division": "Senior Advisor",                            "office": "(Division Admin)",                       "confidence": "low", "note": "Chief Strategy Officer does NOT appear on the 2026-03-05 org chart. Probably retired or folded into Senior Advisor. VERIFY." },
-    "H630EC0010": { "name": "Implement & Support",        "division": "Agency Operations",                         "office": "Implementation & Support",               "confidence": "high" },
-    "H630ED0010": { "name": "Information Tech",           "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high" },
-
-    "H630F00010": { "name": "Chief Information Office",   "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "medium", "note": "Named 'Chief Information Office' but AGY program is 'Aid To School Districts' — possibly a pass-through CC funded out of CIO budget. Verify." },
-    "H630FA0010": { "name": "POLICY AND RESEARCH",        "division": "Senior Advisor",                            "office": "Policy",                                 "confidence": "medium", "note": "Could equally be CCMR/Accountability & Research. Verify which side of the house owns it." },
-
-    "H630G00010": { "name": "Human Resources",            "division": "Agency Operations",                         "office": "Human Resources",                        "confidence": "high" },
-    "H630GA0010": { "name": "Standards & Support",        "division": "College, Career, & Military Readiness",     "office": "Assessment & Standards",                 "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630GA0011": { "name": "Standards & Support",        "division": "College, Career, & Military Readiness",     "office": "Assessment & Standards",                 "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630GB0010": { "name": "Adult Education",            "division": "College, Career, & Military Readiness",     "office": "Career Readiness",                       "sub_division": "Teaching & Learning", "confidence": "medium", "note": "Adult Ed not a separate office on new chart — placed under Career Readiness as closest match. Could also live under Instructional Supports." },
-    "H630GC0010": { "name": "Career & Tech Educ",         "division": "College, Career, & Military Readiness",     "office": "Career Readiness",                       "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630GD0010": { "name": "e-Learning",                 "division": "College, Career, & Military Readiness",     "office": "VirtualSC",                              "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630GE0010": { "name": "Exceptional Children",       "division": "College, Career, & Military Readiness",     "office": "Special Education",                      "sub_division": "Teaching & Learning", "confidence": "high" },
-
-    "H630H00010": { "name": "Div of College & Career",    "division": "College, Career, & Military Readiness",     "office": "Career Readiness",                       "sub_division": "Teaching & Learning", "confidence": "medium", "note": "Could be the CCMR division-level admin CC rather than Career Readiness office leaf." },
-    "H630HA0010": { "name": "Assessment",                 "division": "College, Career, & Military Readiness",     "office": "Assessment & Standards",                 "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630HB0010": { "name": "Data Mgmt & Analysis",       "division": "College, Career, & Military Readiness",     "office": "Accountability & Research",              "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630HC0010": { "name": "District Tech Services",     "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high" },
-    "H630HD0010": { "name": "Fed & State Acct",           "division": "College, Career, & Military Readiness",     "office": "Federal & State Accountability",         "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630HD0011": { "name": "Fed & State Acct",           "division": "College, Career, & Military Readiness",     "office": "Federal & State Accountability",         "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630HE0010": { "name": "STUDENT INTERVENTION",       "division": "Strategic Engagement",                      "office": "Student Support",                        "confidence": "high" },
-    "H630HE0011": { "name": "Regional Services",          "division": "Strategic Engagement",                      "office": "Student Support",                        "confidence": "medium", "note": "'Regional Services' could also live under Education Choice & Family Engagement (regional family liaisons)." },
-    "H630HF0010": { "name": "Adult Education",            "division": "College, Career, & Military Readiness",     "office": "Career Readiness",                       "sub_division": "Teaching & Learning", "confidence": "medium" },
-    "H630HG0010": { "name": "Career & Technology",        "division": "College, Career, & Military Readiness",     "office": "Career Readiness",                       "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630HH0010": { "name": "Special Education Services", "division": "College, Career, & Military Readiness",     "office": "Special Education",                      "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630HJ0010": { "name": "Standards & Learning",       "division": "College, Career, & Military Readiness",     "office": "Assessment & Standards",                 "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630HK0010": { "name": "Virtual Education",          "division": "College, Career, & Military Readiness",     "office": "VirtualSC",                              "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630HL0010": { "name": "Literacy",                   "division": "College, Career, & Military Readiness",     "office": "Instructional Supports",                 "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630HM0010": { "name": "Office of Instruction",      "division": "College, Career, & Military Readiness",     "office": "Instructional Materials",                "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630HN0010": { "name": "Leader Effectiveness",       "division": "College, Career, & Military Readiness",     "office": "Leadership Effectiveness",               "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630HP0010": { "name": "Account. & Research",        "division": "College, Career, & Military Readiness",     "office": "Accountability & Research",              "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630HQ0010": { "name": "Office of Policy",           "division": "Senior Advisor",                            "office": "Policy",                                 "confidence": "high" },
-    "H630HW0010": { "name": "Early Learning",             "division": "College, Career, & Military Readiness",     "office": "Instructional Supports",                 "sub_division": "Teaching & Learning", "confidence": "medium", "note": "Early Learning not a separate office on chart — folded into Instructional Supports as best match." },
-
-    "H630J00010": { "name": "OPERATIONS AND SUPPORT",     "division": "District Operations & Support",             "office": "(Division Admin)",                       "confidence": "high" },
-    "H630JA0010": { "name": "Comm & Parent Svcs",         "division": "Strategic Engagement",                      "office": "Student & Community Engagement",         "confidence": "high" },
-    "H630JB0010": { "name": "SCHOOL FACILITIES",          "division": "District Operations & Support",             "office": "School Facilities",                      "confidence": "high" },
-    "H630JC0010": { "name": "HEALTH AND NUTRITION",       "division": "District Operations & Support",             "office": "Health & Nutrition",                     "confidence": "high" },
-    "H630JD0010": { "name": "MEDICAID SERVICES",          "division": "District Operations & Support",             "office": "Health & Nutrition",                     "confidence": "high", "note": "Medicaid sub-function of Health & Nutrition" },
-    "H630JE0010": { "name": "Public School Choice",       "division": "Strategic Engagement",                      "office": "Education Choice & Family Engagement",   "confidence": "high" },
-    "H630JE0011": { "name": "Public School Choice",       "division": "Strategic Engagement",                      "office": "Education Choice & Family Engagement",   "confidence": "high" },
-    "H630JF0010": { "name": "School Based Health",        "division": "District Operations & Support",             "office": "Health & Nutrition",                     "confidence": "medium", "note": "Could also be Strategic Engagement / Student Support." },
-    "H630JH0010": { "name": "Youth Services",             "division": "Strategic Engagement",                      "office": "Student Support",                        "confidence": "high" },
-    "H630JH0011": { "name": "Youth Services",             "division": "Strategic Engagement",                      "office": "Student Support",                        "confidence": "high" },
-    "H630JI0010": { "name": "Human Resources",            "division": "Agency Operations",                         "office": "Human Resources",                        "confidence": "high" },
-    "H630JJ0010": { "name": "Procurement",                "division": "Financial Services",                        "office": "Procurement",                            "confidence": "high" },
-
-    "H630K00010": { "name": "Div of Educator Effectiveness", "division": "College, Career, & Military Readiness",  "office": "Educator Services",                      "sub_division": "Talent & Continuous Improvement", "confidence": "medium", "note": "'Educator Effectiveness' is not a separate office on the new chart — folded into Educator Services + Leadership Effectiveness. Could split if you want a sub-office." },
-    "H630KA0010": { "name": "Educator Services",          "division": "College, Career, & Military Readiness",     "office": "Educator Services",                      "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630KB0010": { "name": "Teacher Evaluation",         "division": "College, Career, & Military Readiness",     "office": "Educator Services",                      "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630KC0010": { "name": "TEACHER EFFECTIVENESS",      "division": "College, Career, & Military Readiness",     "office": "Educator Services",                      "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630KD0010": { "name": "School Leadership",          "division": "College, Career, & Military Readiness",     "office": "Leadership Effectiveness",               "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630KE0010": { "name": "SCHOOL TRANSFORMATION",      "division": "College, Career, & Military Readiness",     "office": "Leadership Effectiveness",               "sub_division": "Talent & Continuous Improvement", "confidence": "high", "note": "School Transformation absorbed into Leadership Effectiveness (user-confirmed 2026-05-13)" },
-    "H630KF0010": { "name": "E-Learning",                 "division": "College, Career, & Military Readiness",     "office": "VirtualSC",                              "sub_division": "Teaching & Learning", "confidence": "high" },
-
-    "H630L00010": { "name": "CFO",                        "division": "Financial Services",                        "office": "Finance",                                "confidence": "high" },
-    "H630LA0010": { "name": "Office of Finance",          "division": "Financial Services",                        "office": "Finance",                                "confidence": "high", "note": "Main state-aid pass-through CC (Direct Aid to Schools sits here)" },
-    "H630LB0010": { "name": "Human Resources",            "division": "Agency Operations",                         "office": "Human Resources",                        "confidence": "high" },
-    "H630LC0010": { "name": "CHIEF INFORMATION OFFICE",   "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high" },
-    "H630LC0011": { "name": "CISO",                       "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high", "note": "Chief Information Security Officer sub-unit" },
-    "H630LCA010": { "name": "Computer Leasing",           "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high" },
-    "H630LCB010": { "name": "External Technology",        "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high" },
-    "H630LCC010": { "name": "I T Support",                "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high" },
-    "H630LCD010": { "name": "Internal Technology",        "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high" },
-    "H630LCE010": { "name": "P M O",                      "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high" },
-    "H630LCIS10": { "name": "CISO",                       "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high", "note": "Current name CISO (Chief Information Security Officer); historical name was 'T Q M' (Total Quality Management). Same line of work as H630LC0011 + H630W00010." },
-    "H630LD0010": { "name": "PROCUREMENT",                "division": "Financial Services",                        "office": "Procurement",                            "confidence": "high" },
-
-    "H630M00010": { "name": "Board of Education",         "division": "External",                                  "office": "State Board of Education",               "confidence": "high" },
-    "H630N00010": { "name": "GSSM",                       "division": "External",                                  "office": "Governor's School for Science and Mathematics", "confidence": "high" },
-    "H630P00010": { "name": "GSAH",                       "division": "External",                                  "office": "Governor's School for the Arts and Humanities", "confidence": "high" },
-
-    "H630Q00010": { "name": "Child Care Career Dev",      "division": "External",                                  "office": "SC First Steps",                         "confidence": "high" },
-    "H630Q00011": { "name": "Child Dev Education",        "division": "External",                                  "office": "SC First Steps",                         "confidence": "high" },
-    "H630Q00020": { "name": "Early Childhood Init",       "division": "External",                                  "office": "SC First Steps",                         "confidence": "high" },
-    "H630Q00030": { "name": "Early Childhood Services",   "division": "External",                                  "office": "SC First Steps",                         "confidence": "high" },
-    "H630Q00040": { "name": "Policy & Accountability",    "division": "External",                                  "office": "SC First Steps",                         "confidence": "medium", "note": "First Steps sub-office; could be a separate Policy & Accountability sub-bucket if useful" },
-
-    "H630R00010": { "name": "S C Public School District", "division": "External",                                  "office": "SC Public Charter School District",      "confidence": "high", "note": "State charter authorizer — administered by SCDE but not on its org chart" },
-
-    "H630S00010": { "name": "Direct Aid",                 "division": "Financial Services",                        "office": "Finance",                                "confidence": "high", "note": "Direct Aid pass-through — financially owned by Finance" },
-    "H630SA0010": { "name": "Direct Aid - EIA",           "division": "Financial Services",                        "office": "Finance",                                "confidence": "high" },
-    "H630SB0010": { "name": "Direct Aid - Federal",       "division": "Financial Services",                        "office": "Finance",                                "confidence": "high" },
-    "H630SC0010": { "name": "Direct Aid - Earmarked",     "division": "Financial Services",                        "office": "Finance",                                "confidence": "high" },
-    "H630SD0010": { "name": "Children Edu Endowment",     "division": "External",                                  "office": "Children's Education Endowment",         "confidence": "high" },
-
-    "H630T00010": { "name": "Research & Data Analysis",   "division": "College, Career, & Military Readiness",     "office": "Accountability & Research",              "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-
-    "H630V00010": { "name": "Division of Innovation",     "division": "Chief Innovation Officer",                  "office": "Chief Innovation Officer",               "confidence": "high", "note": "The CIO division itself. No sub-offices on the chart." },
-    "H630VA0010": { "name": "Federal & State Accountability", "division": "College, Career, & Military Readiness", "office": "Federal & State Accountability",         "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630VB0010": { "name": "Assessment",                 "division": "College, Career, & Military Readiness",     "office": "Assessment & Standards",                 "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630VC0010": { "name": "School Transformation",      "division": "College, Career, & Military Readiness",     "office": "Leadership Effectiveness",               "sub_division": "Talent & Continuous Improvement", "confidence": "high", "note": "School Transformation absorbed into Leadership Effectiveness (user-confirmed 2026-05-13)" },
-    "H630VD0010": { "name": "Research & Data Analysis",   "division": "College, Career, & Military Readiness",     "office": "Accountability & Research",              "sub_division": "Talent & Continuous Improvement", "confidence": "high" },
-    "H630VE0010": { "name": "Student Intervention",       "division": "Strategic Engagement",                      "office": "Student Support",                        "confidence": "high" },
-    "H630VG0010": { "name": "Family & Community Engagement", "division": "Strategic Engagement",                   "office": "Education Choice & Family Engagement",   "confidence": "high" },
-    "H630VH0010": { "name": "Educator Effectiveness & Leadership Development", "division": "College, Career, & Military Readiness", "office": "Leadership Effectiveness", "sub_division": "Talent & Continuous Improvement", "confidence": "high", "note": "User-confirmed 2026-05-13: Leadership Effectiveness owns this function." },
-    "H630VJ0010": { "name": "Competency-Based & Personalized Learning", "division": "College, Career, & Military Readiness", "office": "Instructional Supports", "sub_division": "Teaching & Learning", "confidence": "high" },
-    "H630VM0010": { "name": "Emergency Programs",         "division": "Strategic Engagement",                      "office": "Student Support",                        "confidence": "medium", "note": "Could be McKinney-Vento / homeless education (Student Support) or true emergency operations (Agency Ops). Verify." },
-
-    "H630W00010": { "name": "Chief Information Security", "division": "Agency Operations",                         "office": "Information Technology",                 "confidence": "high" },
-
-    "H630ZNDBIF": { "name": "INBOUND INTERFACE",          "division": "System",                                    "office": "Interface / Unbudgeted",                 "confidence": "high" }
+    "H630000010": {
+      "name": "SUPERINTENDENT OF ED",
+      "division": "Senior Advisor",
+      "office": "Superintendent's Office",
+      "confidence": "high"
+    },
+    "H63000CAFR": {
+      "name": "Education Department",
+      "division": "System",
+      "office": "Interface / Unbudgeted",
+      "confidence": "high"
+    },
+    "H6300AA010": {
+      "name": "Superintendent of Ed",
+      "division": "Senior Advisor",
+      "office": "Superintendent's Office",
+      "confidence": "high"
+    },
+    "H6300AC010": {
+      "name": "Communications",
+      "division": "Strategic Engagement",
+      "office": "Communications",
+      "confidence": "high"
+    },
+    "H630A00010": {
+      "name": "LEGISLATIVE AND PUBL",
+      "division": "Senior Advisor",
+      "office": "Government Relations",
+      "confidence": "high"
+    },
+    "H630AA0010": {
+      "name": "Superintendent of Ed",
+      "division": "Senior Advisor",
+      "office": "Superintendent's Office",
+      "confidence": "high"
+    },
+    "H630AB0010": {
+      "name": "Dep Super & Sr Advisor",
+      "division": "Senior Advisor",
+      "office": "Superintendent's Office",
+      "confidence": "medium",
+      "note": "'Dep Super' = Deputy Superintendent (which is the Senior Advisor on the new chart). Could be its own admin CC under Senior Advisor."
+    },
+    "H630AC0010": {
+      "name": "Communications",
+      "division": "Strategic Engagement",
+      "office": "Communications",
+      "confidence": "high"
+    },
+    "H630AD0010": {
+      "name": "Strategic Engagement",
+      "division": "Strategic Engagement",
+      "office": "(Division Admin)",
+      "confidence": "high",
+      "note": "Division-level admin CC (the division's own name)"
+    },
+    "H630AE0010": {
+      "name": "Facilities Operations",
+      "division": "Agency Operations",
+      "office": "Facilities Operations",
+      "confidence": "high"
+    },
+    "H630AF0010": {
+      "name": "Implementation and Support",
+      "division": "Agency Operations",
+      "office": "Implementation & Support",
+      "confidence": "high"
+    },
+    "H630AG0010": {
+      "name": "Agency Operations",
+      "division": "Agency Operations",
+      "office": "(Division Admin)",
+      "confidence": "high"
+    },
+    "H630AS0010": {
+      "name": "OFC ASSESSMENT & STA",
+      "division": "College, Career, & Military Readiness",
+      "office": "Assessment & Standards",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630B00010": {
+      "name": "General Counsel",
+      "division": "Legal Affairs",
+      "office": "General Counsel",
+      "confidence": "high"
+    },
+    "H630BA0010": {
+      "name": "Governmental Affairs",
+      "division": "Senior Advisor",
+      "office": "Government Relations",
+      "confidence": "high"
+    },
+    "H630BG0010": {
+      "name": "Grants",
+      "division": "Financial Services",
+      "office": "Grant Services",
+      "confidence": "high"
+    },
+    "H630BP0010": {
+      "name": "Procurement",
+      "division": "Financial Services",
+      "office": "Procurement",
+      "confidence": "high"
+    },
+    "H630C00010": {
+      "name": "Auditing Services",
+      "division": "Financial Services",
+      "office": "Auditing Services",
+      "confidence": "high"
+    },
+    "H630CS0010": {
+      "name": "CHARTER SCHOOLS",
+      "division": "Strategic Engagement",
+      "office": "Education Choice & Family Engagement",
+      "confidence": "high"
+    },
+    "H630D00010": {
+      "name": "Governmental Affairs",
+      "division": "Senior Advisor",
+      "office": "Government Relations",
+      "confidence": "medium",
+      "note": "AGY program 'Special Projects' — could be a re-purposed CC. Verify."
+    },
+    "H630DA0010": {
+      "name": "Strategic Engagement",
+      "division": "Strategic Engagement",
+      "office": "(Division Admin)",
+      "confidence": "high"
+    },
+    "H630DB0010": {
+      "name": "Safe Schools",
+      "division": "Strategic Engagement",
+      "office": "Safe Schools",
+      "confidence": "high"
+    },
+    "H630DC0010": {
+      "name": "Communications",
+      "division": "Strategic Engagement",
+      "office": "Communications",
+      "confidence": "high"
+    },
+    "H630DD0010": {
+      "name": "Stu & Com Engagement",
+      "division": "Strategic Engagement",
+      "office": "Student & Community Engagement",
+      "confidence": "high"
+    },
+    "H630DE0010": {
+      "name": "Student Support",
+      "division": "Strategic Engagement",
+      "office": "Student Support",
+      "confidence": "high"
+    },
+    "H630DF0010": {
+      "name": "Education Choice",
+      "division": "Strategic Engagement",
+      "office": "Education Choice & Family Engagement",
+      "confidence": "high"
+    },
+    "H630E00010": {
+      "name": "Chief Of Staff",
+      "division": "Chief of Staff (Direct)",
+      "office": "Chief of Staff",
+      "confidence": "high",
+      "note": "Reports directly to Chief of Staff with no division box on org chart"
+    },
+    "H630EA0010": {
+      "name": "Research and Data Analysis",
+      "division": "College, Career, & Military Readiness",
+      "office": "Accountability & Research",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630EB0010": {
+      "name": "Chief Strategy Ofc",
+      "division": "Senior Advisor",
+      "office": "(Division Admin)",
+      "confidence": "low",
+      "note": "Chief Strategy Officer does NOT appear on the 2026-03-05 org chart. Probably retired or folded into Senior Advisor. VERIFY."
+    },
+    "H630EC0010": {
+      "name": "Implement & Support",
+      "division": "Agency Operations",
+      "office": "Implementation & Support",
+      "confidence": "high"
+    },
+    "H630ED0010": {
+      "name": "Information Tech",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high"
+    },
+    "H630F00010": {
+      "name": "Chief Information Office",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "medium",
+      "note": "Named 'Chief Information Office' but AGY program is 'Aid To School Districts' — possibly a pass-through CC funded out of CIO budget. Verify."
+    },
+    "H630FA0010": {
+      "name": "POLICY AND RESEARCH",
+      "division": "Senior Advisor",
+      "office": "Policy",
+      "confidence": "medium",
+      "note": "Could equally be CCMR/Accountability & Research. Verify which side of the house owns it."
+    },
+    "H630G00010": {
+      "name": "Human Resources",
+      "division": "Agency Operations",
+      "office": "Human Resources",
+      "confidence": "high"
+    },
+    "H630GA0010": {
+      "name": "Standards & Support",
+      "division": "College, Career, & Military Readiness",
+      "office": "Assessment & Standards",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630GA0011": {
+      "name": "Standards & Support",
+      "division": "College, Career, & Military Readiness",
+      "office": "Assessment & Standards",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630GB0010": {
+      "name": "Adult Education",
+      "division": "College, Career, & Military Readiness",
+      "office": "Career Readiness",
+      "sub_division": "Teaching & Learning",
+      "confidence": "medium",
+      "note": "Adult Ed not a separate office on new chart — placed under Career Readiness as closest match. Could also live under Instructional Supports."
+    },
+    "H630GC0010": {
+      "name": "Career & Tech Educ",
+      "division": "College, Career, & Military Readiness",
+      "office": "Career Readiness",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630GD0010": {
+      "name": "e-Learning",
+      "division": "College, Career, & Military Readiness",
+      "office": "VirtualSC",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630GE0010": {
+      "name": "Exceptional Children",
+      "division": "College, Career, & Military Readiness",
+      "office": "Special Education",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630H00010": {
+      "name": "Div of College & Career",
+      "division": "College, Career, & Military Readiness",
+      "office": "Career Readiness",
+      "sub_division": "Teaching & Learning",
+      "confidence": "medium",
+      "note": "Could be the CCMR division-level admin CC rather than Career Readiness office leaf."
+    },
+    "H630HA0010": {
+      "name": "Assessment",
+      "division": "College, Career, & Military Readiness",
+      "office": "Assessment & Standards",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630HB0010": {
+      "name": "Data Mgmt & Analysis",
+      "division": "College, Career, & Military Readiness",
+      "office": "Accountability & Research",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630HC0010": {
+      "name": "District Tech Services",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high"
+    },
+    "H630HD0010": {
+      "name": "Fed & State Acct",
+      "division": "College, Career, & Military Readiness",
+      "office": "Federal & State Accountability",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630HD0011": {
+      "name": "Fed & State Acct",
+      "division": "College, Career, & Military Readiness",
+      "office": "Federal & State Accountability",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630HE0010": {
+      "name": "STUDENT INTERVENTION",
+      "division": "Strategic Engagement",
+      "office": "Student Support",
+      "confidence": "high"
+    },
+    "H630HE0011": {
+      "name": "Regional Services",
+      "division": "Strategic Engagement",
+      "office": "Student Support",
+      "confidence": "medium",
+      "note": "'Regional Services' could also live under Education Choice & Family Engagement (regional family liaisons)."
+    },
+    "H630HF0010": {
+      "name": "Adult Education",
+      "division": "College, Career, & Military Readiness",
+      "office": "Career Readiness",
+      "sub_division": "Teaching & Learning",
+      "confidence": "medium"
+    },
+    "H630HG0010": {
+      "name": "Career & Technology",
+      "division": "College, Career, & Military Readiness",
+      "office": "Career Readiness",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630HH0010": {
+      "name": "Special Education Services",
+      "division": "College, Career, & Military Readiness",
+      "office": "Special Education",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630HJ0010": {
+      "name": "Standards & Learning",
+      "division": "College, Career, & Military Readiness",
+      "office": "Assessment & Standards",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630HK0010": {
+      "name": "Virtual Education",
+      "division": "College, Career, & Military Readiness",
+      "office": "VirtualSC",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630HL0010": {
+      "name": "Literacy",
+      "division": "College, Career, & Military Readiness",
+      "office": "Instructional Supports",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630HM0010": {
+      "name": "Office of Instruction",
+      "division": "College, Career, & Military Readiness",
+      "office": "Instructional Materials",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630HN0010": {
+      "name": "Leader Effectiveness",
+      "division": "College, Career, & Military Readiness",
+      "office": "Leadership Effectiveness",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630HP0010": {
+      "name": "Account. & Research",
+      "division": "College, Career, & Military Readiness",
+      "office": "Accountability & Research",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630HQ0010": {
+      "name": "Office of Policy",
+      "division": "Senior Advisor",
+      "office": "Policy",
+      "confidence": "high"
+    },
+    "H630HW0010": {
+      "name": "Early Learning",
+      "division": "College, Career, & Military Readiness",
+      "office": "Instructional Supports",
+      "sub_division": "Teaching & Learning",
+      "confidence": "medium",
+      "note": "Early Learning not a separate office on chart — folded into Instructional Supports as best match."
+    },
+    "H630J00010": {
+      "name": "OPERATIONS AND SUPPORT",
+      "division": "District Operations & Support",
+      "office": "(Division Admin)",
+      "confidence": "high"
+    },
+    "H630JA0010": {
+      "name": "Comm & Parent Svcs",
+      "division": "Strategic Engagement",
+      "office": "Student & Community Engagement",
+      "confidence": "high"
+    },
+    "H630JB0010": {
+      "name": "SCHOOL FACILITIES",
+      "division": "District Operations & Support",
+      "office": "School Facilities",
+      "confidence": "high"
+    },
+    "H630JC0010": {
+      "name": "HEALTH AND NUTRITION",
+      "division": "District Operations & Support",
+      "office": "Health & Nutrition",
+      "confidence": "high"
+    },
+    "H630JD0010": {
+      "name": "MEDICAID SERVICES",
+      "division": "District Operations & Support",
+      "office": "Health & Nutrition",
+      "confidence": "high",
+      "note": "Medicaid sub-function of Health & Nutrition"
+    },
+    "H630JE0010": {
+      "name": "Public School Choice",
+      "division": "Strategic Engagement",
+      "office": "Education Choice & Family Engagement",
+      "confidence": "high"
+    },
+    "H630JE0011": {
+      "name": "Public School Choice",
+      "division": "Strategic Engagement",
+      "office": "Education Choice & Family Engagement",
+      "confidence": "high"
+    },
+    "H630JF0010": {
+      "name": "School Based Health",
+      "division": "District Operations & Support",
+      "office": "Health & Nutrition",
+      "confidence": "medium",
+      "note": "Could also be Strategic Engagement / Student Support."
+    },
+    "H630JH0010": {
+      "name": "Youth Services",
+      "division": "Strategic Engagement",
+      "office": "Student Support",
+      "confidence": "high"
+    },
+    "H630JH0011": {
+      "name": "Youth Services",
+      "division": "Strategic Engagement",
+      "office": "Student Support",
+      "confidence": "high"
+    },
+    "H630JI0010": {
+      "name": "Human Resources",
+      "division": "Agency Operations",
+      "office": "Human Resources",
+      "confidence": "high"
+    },
+    "H630JJ0010": {
+      "name": "Procurement",
+      "division": "Financial Services",
+      "office": "Procurement",
+      "confidence": "high"
+    },
+    "H630K00010": {
+      "name": "Div of Educator Effectiveness",
+      "division": "College, Career, & Military Readiness",
+      "office": "Educator Services",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "medium",
+      "note": "'Educator Effectiveness' is not a separate office on the new chart — folded into Educator Services + Leadership Effectiveness. Could split if you want a sub-office."
+    },
+    "H630KA0010": {
+      "name": "Educator Services",
+      "division": "College, Career, & Military Readiness",
+      "office": "Educator Services",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630KB0010": {
+      "name": "Teacher Evaluation",
+      "division": "College, Career, & Military Readiness",
+      "office": "Educator Services",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630KC0010": {
+      "name": "TEACHER EFFECTIVENESS",
+      "division": "College, Career, & Military Readiness",
+      "office": "Educator Services",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630KD0010": {
+      "name": "School Leadership",
+      "division": "College, Career, & Military Readiness",
+      "office": "Leadership Effectiveness",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630KE0010": {
+      "name": "SCHOOL TRANSFORMATION",
+      "division": "College, Career, & Military Readiness",
+      "office": "Leadership Effectiveness",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high",
+      "note": "School Transformation absorbed into Leadership Effectiveness (user-confirmed 2026-05-13)"
+    },
+    "H630KF0010": {
+      "name": "E-Learning",
+      "division": "College, Career, & Military Readiness",
+      "office": "VirtualSC",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630L00010": {
+      "name": "CFO",
+      "division": "Financial Services",
+      "office": "Finance",
+      "confidence": "high"
+    },
+    "H630LA0010": {
+      "name": "Office of Finance",
+      "division": "Financial Services",
+      "office": "Finance",
+      "confidence": "high",
+      "note": "Main state-aid pass-through CC (Direct Aid to Schools sits here)"
+    },
+    "H630LB0010": {
+      "name": "Human Resources",
+      "division": "Agency Operations",
+      "office": "Human Resources",
+      "confidence": "high"
+    },
+    "H630LC0010": {
+      "name": "CHIEF INFORMATION OFFICE",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high"
+    },
+    "H630LC0011": {
+      "name": "CISO",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high",
+      "note": "Chief Information Security Officer sub-unit"
+    },
+    "H630LCA010": {
+      "name": "Computer Leasing",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high"
+    },
+    "H630LCB010": {
+      "name": "External Technology",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high"
+    },
+    "H630LCC010": {
+      "name": "I T Support",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high"
+    },
+    "H630LCD010": {
+      "name": "Internal Technology",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high"
+    },
+    "H630LCE010": {
+      "name": "P M O",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high"
+    },
+    "H630LCIS10": {
+      "name": "CISO",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high",
+      "note": "Current name CISO (Chief Information Security Officer); historical name was 'T Q M' (Total Quality Management). Same line of work as H630LC0011 + H630W00010."
+    },
+    "H630LD0010": {
+      "name": "PROCUREMENT",
+      "division": "Financial Services",
+      "office": "Procurement",
+      "confidence": "high"
+    },
+    "H630M00010": {
+      "name": "Board of Education",
+      "division": "External",
+      "office": "State Board of Education",
+      "confidence": "high"
+    },
+    "H630N00010": {
+      "name": "GSSM",
+      "division": "External",
+      "office": "Governor's School for Science and Mathematics",
+      "confidence": "high"
+    },
+    "H630P00010": {
+      "name": "GSAH",
+      "division": "External",
+      "office": "Governor's School for the Arts and Humanities",
+      "confidence": "high"
+    },
+    "H630Q00010": {
+      "name": "Child Care Career Dev",
+      "division": "External",
+      "office": "SC First Steps",
+      "confidence": "high"
+    },
+    "H630Q00011": {
+      "name": "Child Dev Education",
+      "division": "External",
+      "office": "SC First Steps",
+      "confidence": "high"
+    },
+    "H630Q00020": {
+      "name": "Early Childhood Init",
+      "division": "External",
+      "office": "SC First Steps",
+      "confidence": "high"
+    },
+    "H630Q00030": {
+      "name": "Early Childhood Services",
+      "division": "External",
+      "office": "SC First Steps",
+      "confidence": "high"
+    },
+    "H630Q00040": {
+      "name": "Policy & Accountability",
+      "division": "External",
+      "office": "SC First Steps",
+      "confidence": "medium",
+      "note": "First Steps sub-office; could be a separate Policy & Accountability sub-bucket if useful"
+    },
+    "H630R00010": {
+      "name": "S C Public School District",
+      "division": "External",
+      "office": "SC Public Charter School District",
+      "confidence": "high",
+      "note": "State charter authorizer — administered by SCDE but not on its org chart"
+    },
+    "H630S00010": {
+      "name": "Direct Aid",
+      "division": "Financial Services",
+      "office": "Finance",
+      "confidence": "high",
+      "note": "Direct Aid pass-through — financially owned by Finance"
+    },
+    "H630SA0010": {
+      "name": "Direct Aid - EIA",
+      "division": "Financial Services",
+      "office": "Finance",
+      "confidence": "high"
+    },
+    "H630SB0010": {
+      "name": "Direct Aid - Federal",
+      "division": "Financial Services",
+      "office": "Finance",
+      "confidence": "high"
+    },
+    "H630SC0010": {
+      "name": "Direct Aid - Earmarked",
+      "division": "Financial Services",
+      "office": "Finance",
+      "confidence": "high"
+    },
+    "H630SD0010": {
+      "name": "Children Edu Endowment",
+      "division": "External",
+      "office": "Children's Education Endowment",
+      "confidence": "high"
+    },
+    "H630T00010": {
+      "name": "Research & Data Analysis",
+      "division": "College, Career, & Military Readiness",
+      "office": "Accountability & Research",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630V00010": {
+      "name": "Division of Innovation",
+      "division": "Chief Innovation Officer",
+      "office": "Chief Innovation Officer",
+      "confidence": "high",
+      "note": "The CIO division itself. No sub-offices on the chart."
+    },
+    "H630VA0010": {
+      "name": "Federal & State Accountability",
+      "division": "College, Career, & Military Readiness",
+      "office": "Federal & State Accountability",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630VB0010": {
+      "name": "Assessment",
+      "division": "College, Career, & Military Readiness",
+      "office": "Assessment & Standards",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630VC0010": {
+      "name": "School Transformation",
+      "division": "College, Career, & Military Readiness",
+      "office": "Leadership Effectiveness",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high",
+      "note": "School Transformation absorbed into Leadership Effectiveness (user-confirmed 2026-05-13)"
+    },
+    "H630VD0010": {
+      "name": "Research & Data Analysis",
+      "division": "College, Career, & Military Readiness",
+      "office": "Accountability & Research",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high"
+    },
+    "H630VE0010": {
+      "name": "Student Intervention",
+      "division": "Strategic Engagement",
+      "office": "Student Support",
+      "confidence": "high"
+    },
+    "H630VG0010": {
+      "name": "Family & Community Engagement",
+      "division": "Strategic Engagement",
+      "office": "Education Choice & Family Engagement",
+      "confidence": "high"
+    },
+    "H630VH0010": {
+      "name": "Educator Effectiveness & Leadership Development",
+      "division": "College, Career, & Military Readiness",
+      "office": "Leadership Effectiveness",
+      "sub_division": "Talent & Continuous Improvement",
+      "confidence": "high",
+      "note": "User-confirmed 2026-05-13: Leadership Effectiveness owns this function."
+    },
+    "H630VJ0010": {
+      "name": "Competency-Based & Personalized Learning",
+      "division": "College, Career, & Military Readiness",
+      "office": "Instructional Supports",
+      "sub_division": "Teaching & Learning",
+      "confidence": "high"
+    },
+    "H630VM0010": {
+      "name": "Emergency Programs",
+      "division": "Strategic Engagement",
+      "office": "Student Support",
+      "confidence": "medium",
+      "note": "Could be McKinney-Vento / homeless education (Student Support) or true emergency operations (Agency Ops). Verify."
+    },
+    "H630W00010": {
+      "name": "Chief Information Security",
+      "division": "Agency Operations",
+      "office": "Information Technology",
+      "confidence": "high"
+    },
+    "H630ZNDBIF": {
+      "name": "INBOUND INTERFACE",
+      "division": "System",
+      "office": "Interface / Unbudgeted",
+      "confidence": "high"
+    },
+    "H630BU0010": {
+      "name": "Transportation (Bus Shop admin rollup)",
+      "division": "District Operations & Support",
+      "office": "Transportation",
+      "confidence": "high",
+      "note": "Admin/rollup parent for the H630BUS* bus shops. Not an individual shop; no sub_category so it sits at the office level alongside the Bus Shop group."
+    },
+    "H630JG0010": {
+      "name": "Transportation (Depot admin rollup)",
+      "division": "District Operations & Support",
+      "office": "Transportation",
+      "confidence": "high",
+      "note": "Admin/rollup parent for the H630JGB* depots. Not an individual depot; no sub_category so it sits at the office level alongside the Depot group."
+    }
   },
-
   "prefix_rules": {
-    "H630JG": { "division": "District Operations & Support", "office": "Transportation", "sub_category": "Depot",    "confidence": "high",
-                "note": "All 58 H630JG* cost centers are transportation depots (one per district + special programs)." },
-    "H630BU": { "division": "District Operations & Support", "office": "Transportation", "sub_category": "Bus Shop", "confidence": "high",
-                "note": "All 50 H630BU* cost centers are bus maintenance shops (one per district + special programs)." }
+    "H630JGB": {
+      "division": "District Operations & Support",
+      "office": "Transportation",
+      "sub_category": "Depot",
+      "confidence": "high",
+      "note": "All 58 H630JGB* cost centers are transportation depots (one per district + special programs). Excludes H630JG0010 which is the Transportation admin rollup."
+    },
+    "H630BUS": {
+      "division": "District Operations & Support",
+      "office": "Transportation",
+      "sub_category": "Bus Shop",
+      "confidence": "high",
+      "note": "All 49 H630BUS* cost centers are bus maintenance shops (one per district + special programs). Excludes H630BU0010 which is the Transportation admin rollup."
+    }
   },
-
   "review_needed": [],
   "review_history": [
-    { "date": "2026-05-13", "reviewer": "Dan", "decisions": [
-      "Adult Education (H630GB0010, H630HF0010) confirmed under CCMR > T&L > Career Readiness",
-      "Early Learning (H630HW0010, $94.5M FY25) confirmed under CCMR > T&L > Instructional Supports",
-      "School Transformation (H630VC0010, H630KE0010) moved to CCMR > T&CI > Leadership Effectiveness",
-      "H630F00010 (CIO name / 'Aid to School Districts' AGY) confirmed under Agency Ops > Information Technology",
-      "H630H00010 'Div of College & Career' confirmed as Career Readiness leaf (not division admin)",
-      "H630VH0010 'Educator Effectiveness & Leadership Dev' confirmed under Leadership Effectiveness",
-      "H630LCIS10 renamed from 'T Q M' to 'CISO' (current name; T Q M was historical)",
-      "Zero-dollar items kept at draft-2 placement defaults"
-    ] }
+    {
+      "date": "2026-05-13",
+      "reviewer": "Dan",
+      "decisions": [
+        "Adult Education (H630GB0010, H630HF0010) confirmed under CCMR > T&L > Career Readiness",
+        "Early Learning (H630HW0010, $94.5M FY25) confirmed under CCMR > T&L > Instructional Supports",
+        "School Transformation (H630VC0010, H630KE0010) moved to CCMR > T&CI > Leadership Effectiveness",
+        "H630F00010 (CIO name / 'Aid to School Districts' AGY) confirmed under Agency Ops > Information Technology",
+        "H630H00010 'Div of College & Career' confirmed as Career Readiness leaf (not division admin)",
+        "H630VH0010 'Educator Effectiveness & Leadership Dev' confirmed under Leadership Effectiveness",
+        "H630LCIS10 renamed from 'T Q M' to 'CISO' (current name; T Q M was historical)",
+        "Zero-dollar items kept at draft-2 placement defaults"
+      ]
+    },
+    {
+      "date": "2026-05-15",
+      "change": "Tightened H630BU -> H630BUS and H630JG -> H630JGB prefix rules; added explicit mappings for the admin rollup rows H630BU0010 and H630JG0010 (no sub_category).",
+      "reason": "Admin rollup cost centers were incorrectly being tagged as Bus Shop / Depot by the over-broad 2-char prefix match."
+    }
   ],
-
   "coverage": {
     "total_h630_cost_centers": 225,
-    "explicit_mappings": 117,
-    "prefix_rule_coverage": "108 cost centers (H630JG* + H630BU*)",
+    "explicit_mappings": 119,
+    "prefix_rule_coverage": "107 cost centers (H630JGB* + H630BUS*)",
     "total_coverage_pct": 100,
     "active_fy26_coverage_pct": 100
   },
-
   "usage": "Load into DuckDB as `dim_cost_center_office` (cost_center, division, office, sub_division, sub_category, confidence). Join from vw_budget_vs_actuals_by_funds_center via cost_center to provide Division/Office grouping for the dashboard's Budget vs Actuals view. Replaces the H630BU* → 'Transportation' string-prefix hack at app_internal/queries.py:397."
 }
